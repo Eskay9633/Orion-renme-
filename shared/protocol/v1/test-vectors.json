@@ -245,6 +245,18 @@
    "name": "soru",
    "input": "{\"v\":1,\"id\":\"q1\",\"cmd\":\"ask\",\"args\":{\"question\":\"kara delik nedir\"}}",
    "ok": true
+  },
+  {
+   "name": "kripto genel durum varsayılan TL",
+   "input": "{\"v\":1,\"id\":\"k1\",\"cmd\":\"market.crypto\",\"args\":{}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"currency\":\"try\"},\"cmd\":\"market.crypto\",\"ctx\":{},\"id\":\"k1\",\"v\":1}"
+  },
+  {
+   "name": "kripto para birimi tanımsız",
+   "input": "{\"v\":1,\"id\":\"k2\",\"cmd\":\"market.crypto\",\"args\":{\"coin\":\"bitcoin\",\"currency\":\"jpy\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
   }
  ],
  "responses": [

@@ -395,6 +395,28 @@
         }
       }
     },
+    "market.crypto": {
+      "agent": "chloe",
+      "doc": "Kripto para piyasası: genel durum (en büyük 10) ya da tek bir coinin fiyatı ve 24 saatlik değişimi. CoinGecko (anahtarsız; şartları doğrulanmadı).",
+      "needs_net": true,
+      "args": {
+        "coin": {
+          "type": "string",
+          "required": false,
+          "minLen": 2,
+          "maxLen": 40
+        },
+        "currency": {
+          "type": "enum",
+          "values": [
+            "try",
+            "usd",
+            "eur"
+          ],
+          "default": "try"
+        }
+      }
+    },
     "help": {
       "agent": "mike",
       "doc": "Yapılabilecek işleri listeler.",

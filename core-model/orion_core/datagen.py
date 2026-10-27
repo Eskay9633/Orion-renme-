@@ -552,13 +552,14 @@ TEMPLATES: dict[str, list[Gen]] = {
     "calc.eval": calc_templates(),
     "text.translate": translate_templates(),
     "help": help_templates(),
+    "market.crypto": [lambda rng, sp: g_crypto(rng, sp, False, False)] * 3,
 }
 
 # Komut ağırlıkları (gerçek kullanım tahmini; çok değerli olanlar daha sık)
 WEIGHTS = {
     "reminder.set": 6, "reminder.list": 1, "note.write": 4, "note.search": 3, "research.start": 3,
     "repo.audit": 2, "calendar.add": 4, "calendar.list": 2, "file.summarize": 1, "image.analyze": 2, "image.generate": 2, "card.propose": 3,
-    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "help": 1,
+    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "help": 1,
 }
 
 
@@ -628,6 +629,7 @@ PLANS = {
     "ask": ["memory.recall", "brain.answer"],
     "calc.eval": ["expr.parse", "expr.eval"],
     "text.translate": ["brain.translate"],
+    "market.crypto": ["net.check", "market.read", "card.render"],
     "help": ["commands.list"],
 }
 
@@ -1037,12 +1039,41 @@ def g_health(rng, sp, hf, hv):
     return s, ({"purpose": "update"} if upd else {})
 
 
+COINS = ["bitcoin", "ethereum", "solana", "dogecoin", "XRP", "cardano", "avalanche", "BNB", "tron", "polkadot",
+         "litecoin", "chainlink", "shiba", "toncoin", "pepe", "sui"]
+CRYPTO_ALL = ["bugün kripto piyasası nasıl", "coin borsası ne durumda", "kripto paralara bak", "kripto piyasasına göz at",
+              "coinler ne alemde", "piyasa nasıl, kripto tarafı", "bugün coinler nasıl gidiyor", "kripto durumu ne",
+              "coin piyasasını göster", "kriptolar yükselmiş mi", "kripto borsasında durum nasıl", "coin fiyatlarına bak"]
+CRYPTO_ONE = ["{C} kaç {P}", "{C} fiyatı ne", "{C} ne durumda", "{C} kaç para", "{C} bugün nasıl", "{C} yükseldi mi",
+              "{C} fiyatına bak", "{C} ne kadar oldu"]
+CUR_WORDS = [("lira", "try"), ("TL", "try"), ("dolar", "usd"), ("euro", "eur")]
+
+
+def g_crypto(rng, sp, hf, hv):
+    if rng.random() < 0.4:
+        s = G.choose(rng, CRYPTO_ALL, sp, hf or hv)
+        if rng.random() < 0.3:
+            w, c = rng.choice(CUR_WORDS)
+            return f"{s}, {w} olarak", {"currency": c}
+        return s, {}
+    # Rastgele kelime kullanılmaz: "domates kaç TL" kripto sorusu sanılmasın.
+    coin = pick(rng, COINS, sp)
+    f = G.choose(rng, CRYPTO_ONE, sp, hf or hv)
+    w, c = rng.choice(CUR_WORDS)
+    args = {"coin": coin}
+    if "{P}" in f:
+        if c != "try" or rng.random() < 0.5:
+            args["currency"] = c
+        return _fill(f, C=coin, P=w), args
+    return _fill(f, C=coin), args
+
+
 GRAMMAR = {
     "reminder.set": g_reminder, "reminder.list": g_reminder_list, "note.write": g_note, "note.search": g_note_search,
     "research.start": g_research, "repo.audit": g_repo, "calendar.add": g_calendar_add, "calendar.list": g_calendar_list,
     "file.summarize": g_file, "image.analyze": g_image_analyze, "image.generate": g_image_generate, "card.propose": g_card,
     "timer.start": g_timer, "provider.discover": g_discover, "health.check": g_health, "memory.save": g_memory,
-    "ask": g_ask, "calc.eval": g_calc, "text.translate": g_translate, "help": g_help,
+    "ask": g_ask, "calc.eval": g_calc, "text.translate": g_translate, "help": g_help, "market.crypto": g_crypto,
 }
 GRAMMAR_FRAC = 0.75
 
