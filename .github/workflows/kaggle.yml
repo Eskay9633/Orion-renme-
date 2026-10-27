@@ -1,0 +1,105 @@
+name: kaggle-sohbet
+
+# Sohbet beynini Kaggle'ın ücretsiz ekran kartında (haftada ~30 saat) eğitir.
+# Gerekenler (bir kez): Kaggle hesabı (telefon doğrulaması: GPU ve internet için), Kaggle → Settings → API →
+# "Create New Token"; bu depoda Settings → Secrets → Actions: KAGGLE_USERNAME ve KAGGLE_KEY.
+# "baslat": oturumu Kaggle'a gönderir. "topla" (2 saatte bir): oturum bittiyse sonucu Release olarak yayınlar ve
+# checkpoint'i saklar; hedef adıma ulaşılmadıysa yeni oturumu başlatır (haftalık kota dolana kadar).
+on:
+  workflow_dispatch:
+    inputs:
+      size:
+        description: 'Beyin boyutu: orta (~42M, ~5 saat) ya da buyuk (~92M, ~25 saat, 2-3 oturum)'
+        default: 'orta'
+      steps:
+        description: 'Hedef adım (orta: 55000, buyuk: 110000)'
+        default: '55000'
+  schedule:
+    - cron: '23 */2 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kaggle
+  cancel-in-progress: false
+
+env:
+  KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+  KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  kaggle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Kaggle anahtarı var mı
+        id: k
+        run: |
+          if [ -z "$KAGGLE_USERNAME" ] || [ -z "$KAGGLE_KEY" ]; then
+            echo "KAGGLE_USERNAME / KAGGLE_KEY tanımlı değil; atlandı."; echo "ok=false" >> "$GITHUB_OUTPUT"
+          else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Kaggle aracı
+        if: steps.k.outputs.ok == 'true'
+        run: pip install -q kaggle
+      - name: Durum (hedef, boyut)
+        if: steps.k.outputs.ok == 'true'
+        id: st
+        run: |
+          # Ayarlar elle başlatmada girdiden, zamanlanmışta depodaki kaggle/hedef.txt'den
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "${{ inputs.size }} ${{ inputs.steps }}" > kaggle/hedef.txt
+          fi
+          if [ ! -f kaggle/hedef.txt ]; then echo "Hedef yok (henüz elle başlatılmadı)."; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          read SIZE STEPS < kaggle/hedef.txt
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"; echo "steps=$STEPS" >> "$GITHUB_OUTPUT"
+          KID="$KAGGLE_USERNAME/orion-sohbet-$SIZE"; echo "kid=$KID" >> "$GITHUB_OUTPUT"
+          STATUS=$(kaggle kernels status "$KID" 2>&1 | tr 'A-Z' 'a-z' || true); echo "$STATUS"
+          case "$STATUS" in
+            *running*|*queued*) echo "go=false" >> "$GITHUB_OUTPUT"; echo "Oturum sürüyor." ;;
+            *complete*) echo "go=collect" >> "$GITHUB_OUTPUT" ;;
+            *) echo "go=start" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Sonucu topla ve yayınla
+        if: steps.st.outputs.go == 'collect'
+        id: col
+        run: |
+          mkdir -p kout && kaggle kernels output "${{ steps.st.outputs.kid }}" -p kout
+          M=$(find kout -path '*chat-export/manifest.json' | head -1)
+          if [ -z "$M" ]; then echo "Çıktıda model yok (oturum hata vermiş olabilir)."; echo "next=start" >> "$GITHUB_OUTPUT"; exit 0; fi
+          EXP=$(dirname "$M"); RUN=$(dirname "$EXP")/chat-run
+          STEP=$(python -c "import json;print(json.load(open('$M'))['step'])")
+          TAG="sohbet-kaggle-${{ steps.st.outputs.size }}-$(printf '%07d' $STEP)"
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "Zaten yayınlandı: $TAG"; echo "next=start" >> "$GITHUB_OUTPUT"
+          else
+            NOTES=$(python -c "import json;m=json.load(open('$M'));print(f\"Kaggle GPU · {m['params']:,} parametre · adım {m['step']} · ppl {m['val_ppl_int8']:.1f} · kişilik {m['persona_ok']}\")")
+            gh release create "$TAG" $EXP/model.bin $EXP/tokenizer.json $EXP/manifest.json $EXP/parity.json $EXP/samples.json \
+              --target "$GITHUB_SHA" --title "Sohbet beyni (Kaggle) $TAG" --notes "$NOTES" --prerelease
+            # Devam için checkpoint (sonraki oturum indirir)
+            CK="kaggle-devam-${{ steps.st.outputs.size }}"
+            gh release view "$CK" >/dev/null 2>&1 || gh release create "$CK" --title "Kaggle devam noktası" --notes "Eğitimin kaldığı yer (otomatik)" --prerelease
+            gh release upload "$CK" "$RUN/ckpt.pt" --clobber
+            echo "next=start" >> "$GITHUB_OUTPUT"
+          fi
+          DONE=$(python -c "import json;print(json.load(open('$M'))['step'] >= ${{ steps.st.outputs.steps }})")
+          if [ "$DONE" = "True" ]; then echo "Hedefe ulaşıldı."; echo "next=done" >> "$GITHUB_OUTPUT"; fi
+      - name: Yeni oturum başlat
+        if: steps.st.outputs.go == 'start' || steps.col.outputs.next == 'start'
+        run: |
+          SIZE=${{ steps.st.outputs.size }}; STEPS=${{ steps.st.outputs.steps }}
+          if [ "$SIZE" = "buyuk" ]; then BATCH=24; else BATCH=32; fi
+          mkdir -p kpush
+          sed -e "s/__SIZE__/$SIZE/g" -e "s/__STEPS__/$STEPS/" -e "s/__BATCH__/$BATCH/" -e "s/__BUDGET__/640/" kaggle/orion_sohbet.py > kpush/orion_sohbet.py
+          cat > kpush/kernel-metadata.json <<JSON
+          {"id": "${{ steps.st.outputs.kid }}", "title": "orion-sohbet-$SIZE", "code_file": "orion_sohbet.py",
+           "language": "python", "kernel_type": "script", "is_private": true,
+           "enable_gpu": true, "enable_internet": true, "dataset_sources": [], "kernel_sources": [], "competition_sources": []}
+          JSON
+          kaggle kernels push -p kpush
+      - name: Hedefi depoya yaz (zamanlanmış toplama için)
+        if: github.event_name == 'workflow_dispatch' && steps.k.outputs.ok == 'true'
+        run: |
+          git config user.name "orion-kaggle-bot"; git config user.email "orion-kaggle-bot@users.noreply.github.com"
+          git add kaggle/hedef.txt; git diff --cached --quiet || { git commit -m "kaggle: hedef ${{ inputs.size }} ${{ inputs.steps }}"; git push origin HEAD:main; }

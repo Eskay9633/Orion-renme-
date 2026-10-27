@@ -32,6 +32,16 @@ CUT_SECTIONS = ("\nKaynakça", "\nKaynaklar", "\nDış bağlantılar", "\nAyrıc
 USER, BOT = "Kullanıcı: ", "Orion: "
 
 CHAT_CONFIG = dict(ctx=256, d_model=384, n_layer=8, n_head=6, d_ff=1536)
+# Boyutlar: küçük GitHub işlemcisinde (~17M), orta/büyük ekran kartında (Kaggle) eğitilir.
+SIZES = {
+    "kucuk": CHAT_CONFIG,                                                        # ~17M
+    "orta": dict(ctx=512, d_model=512, n_layer=12, n_head=8, d_ff=2048),         # ~42M
+    "buyuk": dict(ctx=512, d_model=768, n_layer=12, n_head=12, d_ff=3072),       # ~92M
+}
+
+
+def device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # --------------------------------------------------------------------------- veri
@@ -183,6 +193,7 @@ class Windows:
 
 @torch.no_grad()
 def val_loss(model: TinyGpt, data: Path, ctx: int, n: int = 40) -> float:
+    dev = next(model.parameters()).device
     v = np.memmap(data / "val.bin", dtype=np.uint16, mode="r")
     if len(v) <= ctx + 1:
         return float("nan")
@@ -191,8 +202,8 @@ def val_loss(model: TinyGpt, data: Path, ctx: int, n: int = 40) -> float:
     losses = []
     for _ in range(n):
         i = int(rng.integers(0, len(v) - ctx - 1))
-        t = torch.from_numpy(np.asarray(v[i:i + ctx + 1], dtype=np.int64))[None]
-        logits = model(t[:, :-1])
+        t = torch.from_numpy(np.asarray(v[i:i + ctx + 1], dtype=np.int64))[None].to(dev)
+        logits = model(t[:, :-1]).float()
         losses.append(F.cross_entropy(logits.reshape(-1, logits.size(-1)), t[:, 1:].reshape(-1)).item())
     model.train()
     return float(sum(losses) / len(losses))
@@ -206,13 +217,17 @@ def lr_at(step: int, total: int, base: float, warmup: int = 500) -> float:
 
 
 def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: float, dialog_frac: float,
-          threads: int = 0, config: dict | None = None) -> dict:
+          threads: int = 0, config: dict | None = None, resume_from: Path | None = None, grad_accum: int = 1) -> dict:
     if threads:
         torch.set_num_threads(threads)
     out.mkdir(parents=True, exist_ok=True)
     bpe = BPE.load(data / "tokenizer.json")
     bpe.save(out / "tokenizer.json")
     ckpt = out / "ckpt.pt"
+    if not ckpt.exists() and resume_from is not None and Path(resume_from).exists():
+        import shutil
+        shutil.copy(resume_from, ckpt)  # Kaggle: önceki oturumun çıktısından devam
+    dev = device()
     cfg = GptConfig(vocab_size=bpe.vocab_size, **(config or CHAT_CONFIG))
     model = TinyGpt(cfg)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.1)
@@ -224,8 +239,17 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
         opt = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.1)
         opt.load_state_dict(ck["opt"])
         step = ck["step"]
+        cfg = model.config
         print(f"devam: adım {step}", flush=True)
-    print(f"sohbet modeli: {model.n_params():,} parametre", flush=True)
+    model.to(dev)
+    # Optimizer durumu da aynı cihaza taşınsın
+    for st in opt.state.values():
+        for k, v in st.items():
+            if torch.is_tensor(v):
+                st[k] = v.to(dev)
+    use_amp = dev.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    print(f"sohbet modeli: {model.n_params():,} parametre, cihaz {dev}", flush=True)
     win = Windows(data, cfg.ctx, 1000 + step, dialog_frac)
     t0 = time.time()
     log = open(out / "train.log", "a", encoding="utf-8")
@@ -240,13 +264,19 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
     while step < steps:
         for g in opt.param_groups:
             g["lr"] = lr_at(step, steps, lr)
-        x, y = win.batch(batch)
-        logits = model(x)
-        loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
         opt.zero_grad(set_to_none=True)
-        loss.backward()
+        for _ in range(grad_accum):
+            x, y = win.batch(batch)
+            x, y = x.to(dev, non_blocking=True), y.to(dev, non_blocking=True)
+            with torch.autocast(device_type=dev.type, dtype=torch.float16, enabled=use_amp):
+                logits = model(x)
+                loss = F.cross_entropy(logits.float().reshape(-1, logits.size(-1)), y.reshape(-1)) / grad_accum
+            scaler.scale(loss).backward()
+        scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step()
+        scaler.step(opt)
+        scaler.update()
+        loss = loss * grad_accum
         step += 1
         ema = loss.item() if ema is None else 0.98 * ema + 0.02 * loss.item()
         if step % 50 == 0:
@@ -262,7 +292,7 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
     vl = val_loss(model, data, cfg.ctx)
     status = {"step": step, "target_steps": steps, "done": step >= steps, "train_loss": ema,
               "val_loss": vl, "val_ppl": math.exp(vl) if vl == vl else None,
-              "tokens_seen": step * batch * cfg.ctx}
+              "tokens_seen": step * batch * grad_accum * cfg.ctx, "params": model.n_params(), "device": str(dev)}
     (out / "status.json").write_text(json.dumps(status), encoding="utf-8")
     print(json.dumps(status), flush=True)
     return status
@@ -355,6 +385,9 @@ def main(argv=None) -> None:
     t.add_argument("--lr", type=float, default=6e-4)
     t.add_argument("--dialog-frac", type=float, default=0.05)
     t.add_argument("--threads", type=int, default=0)
+    t.add_argument("--size", choices=list(SIZES), default="kucuk")
+    t.add_argument("--resume-from", help="önceki checkpoint (Kaggle: önceki oturumun çıktısı)")
+    t.add_argument("--grad-accum", type=int, default=1)
     e = sub.add_parser("export")
     e.add_argument("--run", required=True)
     e.add_argument("--data", required=True)
@@ -363,7 +396,8 @@ def main(argv=None) -> None:
     if a.cmd == "prepare":
         print(json.dumps(prepare(Path(a.out), a.max_chars, a.vocab), ensure_ascii=False, indent=1))
     elif a.cmd == "train":
-        train(Path(a.data), Path(a.out), a.steps, a.budget_min, a.batch, a.lr, a.dialog_frac, a.threads)
+        train(Path(a.data), Path(a.out), a.steps, a.budget_min, a.batch, a.lr, a.dialog_frac, a.threads,
+              config=SIZES[a.size], resume_from=Path(a.resume_from) if a.resume_from else None, grad_accum=a.grad_accum)
     else:
         export_chat(Path(a.run), Path(a.data), Path(a.out))
 

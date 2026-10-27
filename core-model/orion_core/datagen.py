@@ -560,13 +560,16 @@ TEMPLATES: dict[str, list[Gen]] = {
     "agent.hire": [lambda rng, sp: g_agent_hire(rng, sp, False, False)] * 3,
     "mail.check": [lambda rng, sp: g_mail_check(rng, sp, False, False)] * 3,
     "mail.send": [lambda rng, sp: g_mail_send(rng, sp, False, False)] * 3,
+    "self.status": [lambda rng, sp: g_self_status(rng, sp, False, False)] * 3,
+    "app.open": [lambda rng, sp: g_app_open(rng, sp, False, False)] * 3,
+    "app.list": [lambda rng, sp: g_app_list(rng, sp, False, False)] * 3,
 }
 
 # Komut ağırlıkları (gerçek kullanım tahmini; çok değerli olanlar daha sık)
 WEIGHTS = {
     "reminder.set": 6, "reminder.list": 1, "note.write": 4, "note.search": 3, "research.start": 3,
     "repo.audit": 2, "calendar.add": 4, "calendar.list": 2, "file.summarize": 1, "image.analyze": 2, "image.generate": 2, "card.propose": 3,
-    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "skill.run": 2, "skill.list": 1, "skill.learn": 2, "skill.record": 1, "agent.hire": 1, "mail.check": 2, "mail.send": 1, "help": 1,
+    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "skill.run": 2, "skill.list": 1, "skill.learn": 2, "skill.record": 1, "agent.hire": 1, "mail.check": 2, "mail.send": 1, "self.status": 1, "app.open": 2, "app.list": 1, "help": 1,
 }
 
 
@@ -644,6 +647,9 @@ PLANS = {
     "agent.hire": ["agent.validate", "agent.save"],
     "mail.check": ["net.check", "vault.read", "imap.read", "secret.scrub", "card.render"],
     "mail.send": ["secret.check", "proposal.create", "user.confirm", "smtp.send"],
+    "self.status": ["net.check", "releases.read", "update.check", "card.render"],
+    "app.open": ["apps.query", "intent.build", "app.start"],
+    "app.list": ["apps.query", "card.render"],
     "help": ["commands.list"],
 }
 
@@ -1162,6 +1168,37 @@ def g_mail_send(rng, sp, hf, hv):
     return f"{to} adresine {v}: konu: {subj}; {body}", {"to": to, "subject": subj, "body": body}
 
 
+APP_SEARCH = [("YouTube'da", "YouTube"), ("Spotify'da", "Spotify"), ("Haritalarda", "Haritalar"), ("Google'da", "Google"),
+              ("Play Store'da", "Play Store"), ("GitHub'da", "GitHub"), ("Vikipedi'de", "Vikipedi")]
+APP_OPEN = [("Spotify'ı", "Spotify"), ("WhatsApp'ı", "WhatsApp"), ("Instagram'ı", "Instagram"), ("YouTube'u", "YouTube"),
+            ("Telegram'ı", "Telegram"), ("Gmail'i", "Gmail"), ("kamerayı", "kamera"), ("ayarları", "ayarlar"), ("Netflix'i", "Netflix")]
+APP_QUERIES = ["lofi müzik", "Kadıköy", "kotlin dersleri", "yapay zeka haberleri", "türkçe rap", "orion takımyıldızı",
+               "pilav tarifi", "android geliştirme", "satranç açılışları", "yakındaki eczaneler"]
+
+
+def g_app_open(rng, sp, hf, hv):
+    if rng.random() < 0.6:
+        loc, name = rng.choice(APP_SEARCH)
+        q = pick(rng, APP_QUERIES, sp, lambda r: random_phrase(r, 1, 3))
+        v = G.choose(rng, ["ara", "bul", "aç", "göster"], sp, hv)
+        return f"{loc} {q} {v}", {"name": name, "query": q}
+    acc, name = rng.choice(APP_OPEN)
+    if rng.random() < 0.3:
+        return f"{name} uygulamasını {G.choose(rng, ['aç', 'başlat', 'çalıştır'], sp, hv)}", {"name": name}
+    return f"{acc} {G.choose(rng, ['aç', 'başlat'], sp, hv)}", {"name": name}
+
+
+def g_app_list(rng, sp, hf, hv):
+    return G.choose(rng, ["uygulamalarımı göster", "hangi uygulamalar var", "kurulu uygulamaları listele", "telefondaki uygulamalar neler",
+                          "uygulamalarımı listele", "hangi uygulamalarım var"], sp, hf or hv), {}
+
+
+def g_self_status(rng, sp, hf, hv):
+    return G.choose(rng, ["gelişim durumu", "gelişimin ne durumda", "yeni sürüm var mı", "güncelleme var mı", "kendini güncelle",
+                          "yeni beyin var mı", "eğitim ne durumda", "gelişimini kontrol et", "gelişimine bak", "yeni beyin sürümü çıktı mı"],
+                    sp, hf or hv), {}
+
+
 GRAMMAR = {
     "reminder.set": g_reminder, "reminder.list": g_reminder_list, "note.write": g_note, "note.search": g_note_search,
     "research.start": g_research, "repo.audit": g_repo, "calendar.add": g_calendar_add, "calendar.list": g_calendar_list,
@@ -1169,7 +1206,7 @@ GRAMMAR = {
     "timer.start": g_timer, "provider.discover": g_discover, "health.check": g_health, "memory.save": g_memory,
     "ask": g_ask, "calc.eval": g_calc, "text.translate": g_translate, "help": g_help, "market.crypto": g_crypto,
     "skill.run": g_skill_run, "skill.list": g_skill_list, "skill.learn": g_skill_learn, "skill.record": g_skill_record,
-    "agent.hire": g_agent_hire, "mail.check": g_mail_check, "mail.send": g_mail_send,
+    "agent.hire": g_agent_hire, "mail.check": g_mail_check, "mail.send": g_mail_send, "self.status": g_self_status, "app.open": g_app_open, "app.list": g_app_list,
 }
 GRAMMAR_FRAC = 0.75
 

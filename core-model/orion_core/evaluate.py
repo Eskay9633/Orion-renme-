@@ -93,7 +93,7 @@ def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_p
     res["ans"] = {"exact": sum(o == a["tgt"] for o, a in zip(outs, ans)) / len(ans), "n": len(ans)}
     # Ayrı kalibrasyon kümeleri (farklı tohum): eşik test kümelerine bakılarak seçilmez.
     cal: dict = {}
-    for split, n, seed in (("test_iid", 300, 707), ("test_ood", 300, 909), ("legacy_ood", 300, 808)):
+    for split, n, seed in (("test_iid", 1000, 707), ("test_ood", 1000, 909), ("legacy_ood", 1000, 808)):
         exs = datagen.t2c_set(n, split, seed)
         outs = gen("t2c", [e["src"] for e in exs], "cal_" + split)
         cal[split] = list(zip(confs["cal_" + split], [normalize_cmd(o) == e["full"] for e, o in zip(exs, outs)]))
@@ -103,9 +103,9 @@ def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_p
     return res
 
 
-def abstention(confs: dict, res: dict, cal: dict, margin: float = 0.8) -> dict:
+def abstention(confs: dict, res: dict, cal: dict, margin: float = 0.7) -> dict:
     """Emin değilse sus: güven eşiği seçimi. Eşik, AYRI kalibrasyon kümelerinde her türün yanlış-iş oranı
-    güvenlik tabanı sınırının %80'inin altında kalacak en düşük değerdir (kapsam en büyük olsun diye).
+    güvenlik tabanı sınırının %70'inin altında kalacak en düşük değerdir (kapsam en büyük olsun diye).
     Telefonda bu eşiğin altı 'anlamadım' sayılır. Raporlanan sayılar test kümelerindendir."""
     floor = json.loads(FLOOR_PATH.read_text(encoding="utf-8"))
     limits = {"test_iid": floor["wrong_actions_iid_max"], "test_ood": floor["wrong_actions_ood_max"],

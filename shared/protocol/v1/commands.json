@@ -467,6 +467,37 @@
         }
       }
     },
+    "self.status": {
+      "agent": "david",
+      "doc": "Orion'un gelişim durumu: gelişim deposundaki yeni beyin sürümleri (komut, sohbet) ve uygulama güncellemesi; yeni sürüm varsa kurulum önerisi.",
+      "needs_net": true,
+      "args": {}
+    },
+    "app.open": {
+      "agent": "jack",
+      "doc": "Telefondaki bir uygulamayı açar; bilinen uygulamalarda (YouTube, Spotify, Haritalar, Google, Play Store, GitHub, Vikipedi) içinde arama yapar. Gönderme/arama gibi son adımı kullanıcı yapar.",
+      "needs_net": false,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "minLen": 2,
+          "maxLen": 40
+        },
+        "query": {
+          "type": "string",
+          "required": false,
+          "minLen": 1,
+          "maxLen": 200
+        }
+      }
+    },
+    "app.list": {
+      "agent": "jack",
+      "doc": "Telefonda kurulu uygulamaları listeler (Orion'un kullanabileceği araçlar).",
+      "needs_net": false,
+      "args": {}
+    },
     "skill.run": {
       "agent": "mike",
       "doc": "Kayıtlı bir beceriyi çalıştırır (adım dizisi: sabit komutlar, onaylı araçlar, ajan görevleri).",
