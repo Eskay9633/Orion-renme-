@@ -2,7 +2,8 @@ name: kaggle-sohbet
 
 # Sohbet beynini Kaggle'ın ücretsiz ekran kartında (haftada ~30 saat) eğitir.
 # Gerekenler (bir kez): Kaggle hesabı (telefon doğrulaması: GPU ve internet için), Kaggle → Settings → API →
-# "Create New Token"; bu depoda Settings → Secrets → Actions: KAGGLE_USERNAME ve KAGGLE_KEY.
+# "Yeni Token Oluştur" (önerilen); bu depoda Settings → Secrets → Actions: KAGGLE_USERNAME ve KAGGLE_API_TOKEN
+# (eski tip anahtar için KAGGLE_KEY de çalışır; ikisi birden varsa yeni token önce denenir).
 # "baslat": oturumu Kaggle'a gönderir. "topla" (2 saatte bir): oturum bittiyse sonucu Release olarak yayınlar ve
 # checkpoint'i saklar; hedef adıma ulaşılmadıysa yeni oturumu başlatır (haftalık kota dolana kadar).
 on:
@@ -27,6 +28,7 @@ concurrency:
 env:
   KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
   KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+  KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
   GH_TOKEN: ${{ github.token }}
 
 jobs:
@@ -38,8 +40,8 @@ jobs:
       - name: Kaggle anahtarı var mı
         id: k
         run: |
-          if [ -z "$KAGGLE_USERNAME" ] || [ -z "$KAGGLE_KEY" ]; then
-            echo "KAGGLE_USERNAME / KAGGLE_KEY tanımlı değil; atlandı."; echo "ok=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$KAGGLE_USERNAME" ] || { [ -z "$KAGGLE_KEY" ] && [ -z "$KAGGLE_API_TOKEN" ]; }; then
+            echo "KAGGLE_USERNAME ve KAGGLE_API_TOKEN (ya da KAGGLE_KEY) tanımlı değil; atlandı."; echo "ok=false" >> "$GITHUB_OUTPUT"
           else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
       - name: Kaggle aracı
         if: steps.k.outputs.ok == 'true'
