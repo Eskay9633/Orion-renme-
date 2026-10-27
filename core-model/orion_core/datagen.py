@@ -18,7 +18,7 @@ import random
 from dataclasses import dataclass
 from typing import Callable
 
-from .protocol import canonical, validate_request
+from .protocol import ProtocolError, canonical, validate_request
 
 # --------------------------------------------------------------------------- zaman
 
@@ -601,6 +601,16 @@ def _noise(rng: random.Random, s: str, args: dict) -> tuple[str, dict]:
 def t2c_example(rng: random.Random, split: str = "train", noise: bool = True) -> dict:
     """split: train | test_iid | test_ood (dilbilgisi motorunun görülmemiş parçaları) |
     legacy_ood (Tur 1-2'nin ayrılmış eski kalıpları; eğitimde hiç kullanılmaz, yalnızca rapor)."""
+    # Rastgele üretim nadiren protokol sınırını aşar (ör. çok kısa rol metni); o örnek atılır, yenisi üretilir.
+    for _ in range(20):
+        try:
+            return _t2c_example_once(rng, split, noise)
+        except ProtocolError:
+            continue
+    return _t2c_example_once(rng, split, noise)
+
+
+def _t2c_example_once(rng: random.Random, split: str, noise: bool) -> dict:
     cmds = list(WEIGHTS)
     cmd = rng.choices(cmds, weights=[WEIGHTS[c] for c in cmds])[0]
     if split == "legacy_ood":

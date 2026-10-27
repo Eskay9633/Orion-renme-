@@ -42,3 +42,12 @@ def test_locative_suffix():
 def test_plan_targets():
     p = json.loads(datagen.plan_for({"cmd": "research.start", "args": {"topic": "x", "depth": "deep"}}))
     assert p["agent"] == "sophia" and "provider.judge" in p["steps"]
+
+
+def test_training_stream_never_crashes_on_protocol_limits():
+    """Eğitim akışı rastgele metin üretir; protokol sınırını aşan örnek atlanır, eğitim çökmez (komut-beyni #7 hatası)."""
+    import random
+    from orion_core import datagen
+    rng = random.Random(12345)
+    for _ in range(30000):
+        datagen.t2c_example(rng, "train")
