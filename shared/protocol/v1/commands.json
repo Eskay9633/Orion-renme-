@@ -417,6 +417,142 @@
         }
       }
     },
+    "mail.check": {
+      "agent": "grace",
+      "doc": "Orion'a verilen e-posta hesabındaki son iletileri okur (kimden, konu, kısa özet). Hesap telefondaki kasada.",
+      "needs_net": true,
+      "args": {
+        "count": {
+          "type": "int",
+          "required": false,
+          "min": 1,
+          "max": 20,
+          "default": 5
+        },
+        "unread": {
+          "type": "bool",
+          "required": false,
+          "default": true
+        },
+        "query": {
+          "type": "string",
+          "required": false,
+          "minLen": 2,
+          "maxLen": 80
+        }
+      }
+    },
+    "mail.send": {
+      "agent": "grace",
+      "doc": "E-posta taslağı hazırlar; kullanıcı onaylamadan ASLA gönderilmez.",
+      "needs_net": true,
+      "args": {
+        "to": {
+          "type": "string",
+          "required": true,
+          "minLen": 5,
+          "maxLen": 200
+        },
+        "subject": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 200
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 5000
+        }
+      }
+    },
+    "skill.run": {
+      "agent": "mike",
+      "doc": "Kayıtlı bir beceriyi çalıştırır (adım dizisi: sabit komutlar, onaylı araçlar, ajan görevleri).",
+      "needs_net": false,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "minLen": 2,
+          "maxLen": 40
+        },
+        "input": {
+          "type": "string",
+          "required": false,
+          "minLen": 1,
+          "maxLen": 1000
+        }
+      }
+    },
+    "skill.list": {
+      "agent": "mike",
+      "doc": "Becerileri, araçları ve dış ajanları listeler.",
+      "needs_net": false,
+      "args": {}
+    },
+    "skill.learn": {
+      "agent": "david",
+      "doc": "Hedef için yeni beceri tasarlar (gerekirse araç ve dış ajan önerir); kullanıcı onaylayınca kaydedilir.",
+      "needs_net": true,
+      "args": {
+        "goal": {
+          "type": "string",
+          "required": true,
+          "minLen": 5,
+          "maxLen": 500
+        }
+      }
+    },
+    "skill.record": {
+      "agent": "mike",
+      "doc": "Son yapılan işleri (komutları) adlandırılmış beceri olarak kaydeder (göstererek öğretme).",
+      "needs_net": false,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "minLen": 2,
+          "maxLen": 40
+        },
+        "count": {
+          "type": "int",
+          "required": false,
+          "min": 1,
+          "max": 8,
+          "default": 3
+        }
+      }
+    },
+    "agent.hire": {
+      "agent": "mike",
+      "doc": "Bir iç ajana yardımcı dış ajan (rolü olan yapay zeka) ekler.",
+      "needs_net": false,
+      "args": {
+        "role": {
+          "type": "string",
+          "required": true,
+          "minLen": 5,
+          "maxLen": 300
+        },
+        "helps": {
+          "type": "enum",
+          "values": [
+            "mike",
+            "sophia",
+            "emma",
+            "luna",
+            "david",
+            "jack",
+            "chloe",
+            "grace",
+            "maya"
+          ],
+          "default": "sophia"
+        }
+      }
+    },
     "help": {
       "agent": "mike",
       "doc": "Yapılabilecek işleri listeler.",

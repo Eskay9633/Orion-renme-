@@ -134,6 +134,9 @@ def write_license_notes(path: Path, stats: dict | None = None) -> None:
         "", "## Orion'un kendi bileşenleri", "",
         "- **Çekirdek model ve tokenizer**: sıfırdan, yalnızca programla üretilmiş veriyle (+ izinli damıtma verisiyle) eğitilir. Ağırlıklar bu deponun lisansına tabidir.",
         "- **Programla üretilen veri** (`orion_core/datagen.py`): kota ve lisans sorunu yok.",
+        "", "## Uygulama kütüphaneleri (Tur 7)", "",
+        "- **Jakarta Mail Android** (`com.sun.mail:android-mail`, `android-activation` 1.6.7): Orion'un e-posta hesabı. Lisans EPL-2.0 /",
+        "  GPL-2.0 Classpath Exception — doğrulanmadı.",
     ]
     if stats:
         lines += ["", "## Son veri hattı çalışması", "", "```", json.dumps(stats, ensure_ascii=False, indent=1), "```"]

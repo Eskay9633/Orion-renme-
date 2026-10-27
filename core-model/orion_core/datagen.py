@@ -553,13 +553,20 @@ TEMPLATES: dict[str, list[Gen]] = {
     "text.translate": translate_templates(),
     "help": help_templates(),
     "market.crypto": [lambda rng, sp: g_crypto(rng, sp, False, False)] * 3,
+    "skill.run": [lambda rng, sp: g_skill_run(rng, sp, False, False)] * 3,
+    "skill.list": [lambda rng, sp: g_skill_list(rng, sp, False, False)] * 3,
+    "skill.learn": [lambda rng, sp: g_skill_learn(rng, sp, False, False)] * 3,
+    "skill.record": [lambda rng, sp: g_skill_record(rng, sp, False, False)] * 3,
+    "agent.hire": [lambda rng, sp: g_agent_hire(rng, sp, False, False)] * 3,
+    "mail.check": [lambda rng, sp: g_mail_check(rng, sp, False, False)] * 3,
+    "mail.send": [lambda rng, sp: g_mail_send(rng, sp, False, False)] * 3,
 }
 
 # Komut ağırlıkları (gerçek kullanım tahmini; çok değerli olanlar daha sık)
 WEIGHTS = {
     "reminder.set": 6, "reminder.list": 1, "note.write": 4, "note.search": 3, "research.start": 3,
     "repo.audit": 2, "calendar.add": 4, "calendar.list": 2, "file.summarize": 1, "image.analyze": 2, "image.generate": 2, "card.propose": 3,
-    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "help": 1,
+    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "skill.run": 2, "skill.list": 1, "skill.learn": 2, "skill.record": 1, "agent.hire": 1, "mail.check": 2, "mail.send": 1, "help": 1,
 }
 
 
@@ -630,6 +637,13 @@ PLANS = {
     "calc.eval": ["expr.parse", "expr.eval"],
     "text.translate": ["brain.translate"],
     "market.crypto": ["net.check", "market.read", "card.render"],
+    "skill.run": ["skill.load", "skill.validate", "steps.run", "card.render"],
+    "skill.list": ["skill.load", "card.render"],
+    "skill.learn": ["net.check", "skill.design", "skill.validate", "proposal.create", "user.confirm"],
+    "skill.record": ["history.read", "skill.validate", "skill.save"],
+    "agent.hire": ["agent.validate", "agent.save"],
+    "mail.check": ["net.check", "vault.read", "imap.read", "secret.scrub", "card.render"],
+    "mail.send": ["secret.check", "proposal.create", "user.confirm", "smtp.send"],
     "help": ["commands.list"],
 }
 
@@ -1071,12 +1085,91 @@ def g_crypto(rng, sp, hf, hv):
     return _fill(f, C=coin), args
 
 
+SKILL_NAMES = ["sabah rutini", "akşam kontrolü", "kripto özeti", "haftalık plan", "iş başlangıcı", "spor takibi",
+               "okuma listesi", "gün sonu raporu", "proje durumu", "hafta sonu planı", "fatura kontrolü", "kod çalışması"]
+SKILL_GOALS = ["her sabah takvimimi ve kripto piyasasını özetle", "github'da yapay zeka ajanları için iyi repolar bul ve not al",
+               "haftalık harcamalarımı notlardan derle", "bana her akşam yarının planını çıkar", "yeni çıkan Android güncellemelerini takip et",
+               "okuduğum kitapları not alıp haftalık özetle", "anahtarlı yapay zekalar için kullanılabilir bir çözüm bul",
+               "işe yarar ücretsiz araçlar bulup listele"]
+ROLES = ["kaynakları doğrulayan titiz araştırmacı", "kod örneklerini inceleyen yazılımcı", "kısa ve net özet çıkaran editör",
+         "fiyat ve piyasa verisini yorumlayan analist", "Türkçe metinleri düzelten yazım uzmanı", "görsel fikir üreten tasarımcı"]
+AGENT_TR = [("Sophia", "sophia", "'ya"), ("Jack", "jack", "'e"), ("Emma", "emma", "'ya"), ("Chloe", "chloe", "'ye"),
+            ("Luna", "luna", "'ya"), ("Mike", "mike", "'a"), ("David", "david", "'e"), ("Maya", "maya", "'ya"), ("Grace", "grace", "'e")]
+
+
+def g_skill_run(rng, sp, hf, hv):
+    x = pick(rng, SKILL_NAMES, sp, lambda r: random_phrase(r, 1, 3))
+    v = G.choose(rng, ["çalıştır", "kullan", "uygula", "başlat", "yap"], sp, hv)
+    if rng.random() < 0.35:
+        inp = pick(rng, NOTE_TEXTS, sp, lambda r: random_phrase(r, 1, 5))
+        return f"{x} becerisini {v}: {inp}", {"name": x, "input": inp}
+    return f"{x} becerisini {v}", {"name": x}
+
+
+def g_skill_list(rng, sp, hf, hv):
+    return G.choose(rng, ["becerilerimi göster", "becerilerin neler", "hangi becerilerin var", "becerileri listele",
+                          "araçlarını göster", "dış ajanları göster", "becerilerini göster", "becerilerin ne"], sp, hf or hv), {}
+
+
+def g_skill_learn(rng, sp, hf, hv):
+    goal = pick(rng, SKILL_GOALS, sp, lambda r: random_phrase(r, 3, 8))
+    pre = G.choose(rng, ["beceri öğren", "yeni beceri öğren", "şunu yapmayı öğren", "yeni beceri"], sp, hf or hv)
+    return f"{pre}: {goal}", {"goal": goal}
+
+
+def g_skill_record(rng, sp, hf, hv):
+    x = pick(rng, SKILL_NAMES, sp, lambda r: random_phrase(r, 1, 3))
+    if rng.random() < 0.6:
+        n = rng.randint(1, 8)
+        w = G.choose(rng, ["işi", "adımı", "komutu"], sp, hv)
+        return f"son {n} {w} beceri olarak kaydet: {x}", {"name": x, "count": n}
+    pre = G.choose(rng, ["son yaptıklarımı", "bunları", "bunu"], sp, hf)
+    return f"{pre} beceri olarak kaydet: {x}", {"name": x}
+
+
+def g_agent_hire(rng, sp, hf, hv):
+    role = pick(rng, ROLES, sp, lambda r: random_phrase(r, 2, 6))
+    v = G.choose(rng, ["yardımcı ajan ekle", "yardımcı al", "dış ajan ekle", "yardımcı ajan al"], sp, hf or hv)
+    if rng.random() < 0.7:
+        name, aid, suf = rng.choice(AGENT_TR)
+        return f"{name}{suf} {v}: {role}", {"role": role, "helps": aid}
+    return f"{v}: {role}", {"role": role}
+
+
+MAIL_CHECK = ["yeni maillerime bak", "e-postalarımı kontrol et", "gelen kutuma bak", "yeni mail var mı", "maillerimi oku",
+              "e-postalarım neler", "gelen kutusunu göster", "postalarıma bak", "mail geldi mi", "e-posta kutumu kontrol et"]
+MAIL_TO = ["ali@ornek.com", "ayse.yilmaz@gmail.com", "info@sirket.com.tr", "destek@uygulama.io", "mehmet@okul.edu.tr"]
+MAIL_SUBJ = ["Yarınki toplantı", "Fatura hakkında", "Proje güncellemesi", "Teşekkürler", "Randevu talebi", "Haftalık rapor"]
+
+
+def g_mail_check(rng, sp, hf, hv):
+    s = G.choose(rng, MAIL_CHECK, sp, hf or hv)
+    r = rng.random()
+    if r < 0.25:
+        n = rng.choice([3, 5, 10, 20])
+        return f"son {n} maili göster", {"count": n}
+    if r < 0.4:
+        who = rng.choice(NAMES)
+        return f"{who}'dan mail geldi mi", {"query": who}
+    return s, {}
+
+
+def g_mail_send(rng, sp, hf, hv):
+    to = rng.choice(MAIL_TO)
+    subj = pick(rng, MAIL_SUBJ, sp, lambda r: random_phrase(r, 1, 4, True))
+    body = pick(rng, NOTE_TEXTS, sp, lambda r: random_phrase(r, 3, 10))
+    v = G.choose(rng, ["mail yaz", "e-posta gönder", "mail at", "e-posta hazırla"], sp, hf or hv)
+    return f"{to} adresine {v}: konu: {subj}; {body}", {"to": to, "subject": subj, "body": body}
+
+
 GRAMMAR = {
     "reminder.set": g_reminder, "reminder.list": g_reminder_list, "note.write": g_note, "note.search": g_note_search,
     "research.start": g_research, "repo.audit": g_repo, "calendar.add": g_calendar_add, "calendar.list": g_calendar_list,
     "file.summarize": g_file, "image.analyze": g_image_analyze, "image.generate": g_image_generate, "card.propose": g_card,
     "timer.start": g_timer, "provider.discover": g_discover, "health.check": g_health, "memory.save": g_memory,
     "ask": g_ask, "calc.eval": g_calc, "text.translate": g_translate, "help": g_help, "market.crypto": g_crypto,
+    "skill.run": g_skill_run, "skill.list": g_skill_list, "skill.learn": g_skill_learn, "skill.record": g_skill_record,
+    "agent.hire": g_agent_hire, "mail.check": g_mail_check, "mail.send": g_mail_send,
 }
 GRAMMAR_FRAC = 0.75
 

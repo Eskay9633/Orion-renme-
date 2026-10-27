@@ -17,7 +17,7 @@ import regex as re
 from .bpe import BPE
 
 N_PTR = 96
-COPY_KEYS = ("text", "title", "topic", "query", "label", "place", "need", "prompt", "question", "repo", "coin")
+COPY_KEYS = ("text", "title", "topic", "query", "label", "place", "need", "prompt", "question", "repo", "coin", "name", "input", "goal", "role", "to", "subject", "body")
 _MARK = re.compile("(\\d+)(\\d+)")
 
 
