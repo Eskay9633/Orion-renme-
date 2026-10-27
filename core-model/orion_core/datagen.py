@@ -799,7 +799,7 @@ def g_reminder_list(rng, sp, hf, hv):
     return f"{s} {p}", {}
 
 
-NOTE_VERBS = ["not al", "not et", "not yaz", "notlarıma ekle", "bir kenara yaz", "kaydet", "bir yere yaz",
+NOTE_VERBS = ["not al", "not et", "not yaz", "notlarıma ekle", "bir kenara yaz", "kaydet", "bir yere yaz", "unutmamak için kaydet",
               "not defterime ekle", "deftere yaz", "not düş", "kayda geç", "not olarak kaydet", "bir yere not et",
               "notlara ekle", "not bırak", "yazıver"]
 NOTE_FRAMES = ["{V}: {X}", "şunu {V}: {X}", "{X} diye {V}", "{X}, {V}", "{V} lütfen: {X}", "bunu {V}: {X}",
@@ -1041,7 +1041,7 @@ def g_card(rng, sp, hf, hv):
     f = G.choose(rng, ["{W} kartı ekle: {T}", "ana ekrana {W} kartı koy: {T}", "{T} için {W} kartı yap",
                        "'{T}' başlıklı bir {W} kartı ekle", "yeni {W} kartı: {T}", "{T} başlıklı {W} kartı oluştur",
                        "ekrana {W} kartı ekle, adı {T}", "{W} kartı istiyorum: {T}",
-                       "{T} için bir {W} kartı hazırla", "ana ekranıma {T} gösteren bir {W} kartı koy",
+                       "{T} için bir {W} kartı hazırla", "ana ekranıma {T} gösteren bir {W} kartı koy", "ekranıma {T} gösteren {W} kartı ekle",
                        "{T} için {W} kartı tasarla", "{T} gösteren {W} kartı ekle"], sp, hf or hv)
     return _fill(f, W=w, T=t), {"kind": kind, "title": t}
 
@@ -1061,7 +1061,8 @@ def g_health(rng, sp, hf, hv):
     s, upd = G.choose(rng, [("telefonun sağlığını kontrol et", False), ("güncellemeden önce telefonu kontrol et", True),
                             ("pil ve depolama durumu nasıl", False), ("güncelleme yapsam sorun olur mu", True),
                             ("telefon sağlıklı mı", False), ("sistem güncellemesine hazır mıyım", True),
-                            ("telefonumun durumu nasıl", False), ("güncellemeye hazır mıyım", True)], sp, hf or hv)
+                            ("telefonumun durumu nasıl", False), ("güncellemeye hazır mıyım", True),
+                            ("telefonu bir ölç", False), ("telefonun sağlığını ölç", False)], sp, hf or hv)
     return s, ({"purpose": "update"} if upd else {})
 
 
