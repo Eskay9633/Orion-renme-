@@ -13,6 +13,10 @@ on:
     paths:
       - 'core-model/orion_core/datagen.py'
       - 'core-model/orion_core/grammar.py'
+      - 'core-model/orion_core/evaluate.py'
+      - 'core-model/orion_core/train.py'
+      - 'core-model/orion_core/bpe.py'
+      - 'core-model/orion_core/copy.py'
       - 'shared/protocol/**'
 
 permissions:

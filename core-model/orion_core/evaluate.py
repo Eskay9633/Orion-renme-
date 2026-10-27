@@ -21,6 +21,7 @@ from .protocol import ProtocolError, canonical, validate_request
 from .train import prompt_ids
 
 GATE_PATH = SHARED / "core-model" / "gate.json"
+FLOOR_PATH = SHARED / "core-model" / "app-floor.json"
 
 
 def normalize_cmd(text: str) -> str | None:
@@ -90,25 +91,34 @@ def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_p
     ans = [datagen.answer_example(rng, "test_iid") for _ in range(n_ans)]
     outs = gen("ans", [a["src"] for a in ans])
     res["ans"] = {"exact": sum(o == a["tgt"] for o, a in zip(outs, ans)) / len(ans), "n": len(ans)}
-    res["abstain"] = abstention(confs, res)
+    # Ayrı kalibrasyon kümeleri (farklı tohum): eşik test kümelerine bakılarak seçilmez.
+    cal: dict = {}
+    for split, n, seed in (("test_iid", 300, 707), ("test_ood", 300, 909), ("legacy_ood", 300, 808)):
+        exs = datagen.t2c_set(n, split, seed)
+        outs = gen("t2c", [e["src"] for e in exs], "cal_" + split)
+        cal[split] = list(zip(confs["cal_" + split], [normalize_cmd(o) == e["full"] for e, o in zip(exs, outs)]))
+    res["abstain"] = abstention(confs, res, cal)
     for k in [k for k in res if k.endswith("_hits")]:
         del res[k]
     return res
 
 
-def abstention(confs: dict, res: dict, target_precision: float = 0.97) -> dict:
-    """Emin değilse sus: güven eşiği seçimi. Eşik, iid + yeni-yapı (ood) kümelerinde kabul edilen
-    çıktıların doğruluğu >= hedef olacak en düşük değer. Telefonda bu eşiğin altı 'anlamadım' sayılır."""
-    pairs = []
-    for k in ("test_iid", "test_ood"):
-        pairs += list(zip(confs.get(k, []), res.get(k + "_hits", [])))
+def abstention(confs: dict, res: dict, cal: dict, margin: float = 0.8) -> dict:
+    """Emin değilse sus: güven eşiği seçimi. Eşik, AYRI kalibrasyon kümelerinde her türün yanlış-iş oranı
+    güvenlik tabanı sınırının %80'inin altında kalacak en düşük değerdir (kapsam en büyük olsun diye).
+    Telefonda bu eşiğin altı 'anlamadım' sayılır. Raporlanan sayılar test kümelerindendir."""
+    floor = json.loads(FLOOR_PATH.read_text(encoding="utf-8"))
+    limits = {"test_iid": floor["wrong_actions_iid_max"], "test_ood": floor["wrong_actions_ood_max"],
+              "legacy_ood": floor["wrong_actions_legacy_ood_max"]}
     best = 1.0
-    grid = [i / 100 for i in range(5, 100)] + [0.995, 0.998, 0.999, 0.9995, 0.9998, 0.9999]
+    # Aday eşikler: kalibrasyon güvenlerinin kendisi (ince ayar), 4 basamağa yuvarlanır (telefona da gider).
+    grid = sorted({round(c, 4) for pairs in cal.values() for c, _ in pairs} | {1.0})
     for tau in grid:
-        acc = [h for c, h in pairs if c >= tau]
-        if acc and sum(acc) / len(acc) >= target_precision:
+        if all(sum(1 for c, h in pairs if c >= tau and not h) / len(pairs) <= margin * limits[k]
+               for k, pairs in cal.items()):
             best = tau
             break
+    target_precision = None
     out = {"threshold": best, "target_precision": target_precision}
     for k in ("test_iid", "test_ood", "legacy_ood", "handwritten"):
         cs, hs = confs.get(k, []), res.get(k + "_hits", [])
@@ -131,9 +141,6 @@ def check_gate(res: dict, gate: dict) -> list[str]:
         if v < gate[k]:
             fails.append(f"{k}={v:.3f} < {gate[k]}")
     return fails
-
-
-FLOOR_PATH = SHARED / "core-model" / "app-floor.json"
 
 
 def check_floor(res: dict, floor: dict) -> list[str]:
