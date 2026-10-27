@@ -79,11 +79,19 @@ def q_particle(word: str) -> str:
     return f"m{v}s{v}n"
 
 
+def jussive(verb: str) -> str:
+    """Üçüncü kişi emir: hatırlat → hatırlatsın, ara → arasın, not et → not etsin (ajana seslenirken)."""
+    words = verb.split(" ")
+    w = words[-1]
+    words[-1] = w + "s" + h4(w) + "n"
+    return " ".join(words)
+
+
 def moods(verb: str) -> list[str]:
     """Aynı isteğin söyleniş biçimleri."""
     a = aorist(verb)
     b = ability(verb)
-    return [verb, f"{a} {q_particle(a)}", f"{b} {q_particle(b)}"]
+    return [verb, f"{a} {q_particle(a)}", f"{b} {q_particle(b)}", jussive(verb)]
 
 
 def dative(word: str) -> str:

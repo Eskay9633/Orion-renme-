@@ -997,8 +997,9 @@ def g_file(rng, sp, hf, hv):
     return f"{acc} {ln[0]}{verb}", args
 
 
-REPO_FRAMES = ["{R} reposunu {V}", "{R} deposunu {V}", "{R} projesini {V}", "{V}: {R}", "{R} için {V}"]
-REPO_VERBS = ["denetle", "kontrol et", "incele", "gözden geçir", "bir bak", "analiz et", "tara", "değerlendir"]
+REPO_FRAMES = ["{R} reposunu {V}", "{R} deposunu {V}", "{R} projesini {V}", "{V}: {R}", "{R} için {V}",
+               "{R} projesinin durumunu {V}", "{R} reposunun son halini {V}"]
+REPO_VERBS = ["denetle", "kontrol et", "incele", "gözden geçir", "bir bak", "analiz et", "tara", "değerlendir", "özetle"]
 
 
 def g_repo(rng, sp, hf, hv):
@@ -1016,7 +1017,9 @@ def g_card(rng, sp, hf, hv):
     t = pick(rng, CARD_TITLES, sp, lambda r: random_phrase(r, 1, 3, True))
     f = G.choose(rng, ["{W} kartı ekle: {T}", "ana ekrana {W} kartı koy: {T}", "{T} için {W} kartı yap",
                        "'{T}' başlıklı bir {W} kartı ekle", "yeni {W} kartı: {T}", "{T} başlıklı {W} kartı oluştur",
-                       "ekrana {W} kartı ekle, adı {T}", "{W} kartı istiyorum: {T}"], sp, hf or hv)
+                       "ekrana {W} kartı ekle, adı {T}", "{W} kartı istiyorum: {T}",
+                       "{T} için bir {W} kartı hazırla", "ana ekranıma {T} gösteren bir {W} kartı koy",
+                       "{T} için {W} kartı tasarla", "{T} gösteren {W} kartı ekle"], sp, hf or hv)
     return _fill(f, W=w, T=t), {"kind": kind, "title": t}
 
 
@@ -1078,9 +1081,16 @@ GRAMMAR = {
 GRAMMAR_FRAC = 0.75
 
 
+AGENT_NAMES = ["Mike", "Sophia", "Emma", "Luna", "David", "Jack", "Chloe", "Grace", "Maya", "Orion"]
+
+
 def grammar_example(rng: random.Random, cmd: str, split: str) -> tuple[str, dict]:
     hf = hv = False
     if split == "test_ood":
         r = rng.random()
         hf, hv = (True, False) if r < 0.4 else (False, True) if r < 0.8 else (True, True)
-    return GRAMMAR[cmd](rng, split, hf, hv)
+    tr, args = GRAMMAR[cmd](rng, split, hf, hv)
+    # Ajana seslenme ("Luna, ..." / "Luna ...") hiçbir argümanın parçası değildir (Tur 6 kök sebep).
+    if rng.random() < 0.12:
+        tr = rng.choice(AGENT_NAMES) + rng.choice([" ", ", "]) + tr
+    return tr, args
