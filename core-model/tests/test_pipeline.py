@@ -22,6 +22,12 @@ def test_manual_import_never_trainable():
     assert r["training_allowed"] is False
 
 
+def test_unverified_teacher_rows_never_trainable():
+    assert pipeline.clean_record(rec(origin="teacher"), P)["training_allowed"] is False
+    assert pipeline.clean_record(rec(origin="teacher", verified="true"), P)["training_allowed"] is False
+    assert pipeline.clean_record(rec(origin="teacher", verified=True), P)["training_allowed"] is True
+
+
 def test_non_true_values_become_false():
     for v in ("true", 1, None, "yes"):
         assert pipeline.clean_record(rec(training_allowed=v), P)["training_allowed"] is False

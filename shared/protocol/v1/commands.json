@@ -584,6 +584,19 @@
         }
       }
     },
+    "memory.recall": {
+      "agent": "mike",
+      "doc": "Katmanlı hafızayı gösterir: Orion'un kullanıcı hakkında bildikleri (kişilik özeti, onaylı bilgiler, alışkanlıklar). query verilirse yalnızca ilgili bilgiler.",
+      "needs_net": false,
+      "args": {
+        "query": {
+          "type": "string",
+          "required": false,
+          "minLen": 1,
+          "maxLen": 100
+        }
+      }
+    },
     "help": {
       "agent": "mike",
       "doc": "Yapılabilecek işleri listeler.",

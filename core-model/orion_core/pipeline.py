@@ -6,7 +6,8 @@ Kayıt biçimi (jsonl, her satır bir örnek):
   provider, model, date       kaynak sağlayıcı / model / tarih
   license                     lisans notu
   training_allowed            yalnızca true olanlar eğitime girer
-  origin                      grammar | api | manual_import | local | user
+  origin                      grammar | api | manual_import | local | user | teacher
+  verified                    (teacher için) true: Orion'un kendi çeviricisi ya da ikinci bir öğretmen aynı komutu verdi
   user_rating                 -1 / 0 / +1 (kullanıcı puanı)
 Kullanıcının onay/ret verisi (DPO için) ayrı dosyada tutulur: prefs.jsonl
 """
@@ -54,6 +55,9 @@ def clean_record(r: dict, providers: dict[str, dict]) -> dict | None:
     if p is not None and p.get("api") == "manual":
         r["training_allowed"] = False
     if r["training_allowed"] is not True:
+        r["training_allowed"] = False
+    # Öğretmen (yardımcı yapay zeka) örneği tek başına güvenilmez: doğrulanmadıysa eğitime girmez.
+    if r["origin"] == "teacher" and r.get("verified") is not True:
         r["training_allowed"] = False
     # Sert gizli (anahtar/parola/kart/IBAN/TCKN) içeren örnek hiç tutulmaz; diğer kişisel veri maskelenir.
     if contains_hard_secret(r["src"]) or contains_hard_secret(r["tgt"]):

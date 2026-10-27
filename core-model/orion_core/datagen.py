@@ -563,13 +563,14 @@ TEMPLATES: dict[str, list[Gen]] = {
     "self.status": [lambda rng, sp: g_self_status(rng, sp, False, False)] * 3,
     "app.open": [lambda rng, sp: g_app_open(rng, sp, False, False)] * 3,
     "app.list": [lambda rng, sp: g_app_list(rng, sp, False, False)] * 3,
+    "memory.recall": [lambda rng, sp: g_memory_recall(rng, sp, False, False)] * 3,
 }
 
 # Komut ağırlıkları (gerçek kullanım tahmini; çok değerli olanlar daha sık)
 WEIGHTS = {
     "reminder.set": 6, "reminder.list": 1, "note.write": 4, "note.search": 3, "research.start": 3,
     "repo.audit": 2, "calendar.add": 4, "calendar.list": 2, "file.summarize": 1, "image.analyze": 2, "image.generate": 2, "card.propose": 3,
-    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "skill.run": 2, "skill.list": 1, "skill.learn": 2, "skill.record": 1, "agent.hire": 1, "mail.check": 2, "mail.send": 1, "self.status": 1, "app.open": 2, "app.list": 1, "help": 1,
+    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "skill.run": 2, "skill.list": 1, "skill.learn": 2, "skill.record": 1, "agent.hire": 1, "mail.check": 2, "mail.send": 1, "self.status": 1, "app.open": 2, "app.list": 1, "memory.recall": 1, "help": 1,
 }
 
 
@@ -650,6 +651,7 @@ PLANS = {
     "self.status": ["net.check", "releases.read", "update.check", "card.render"],
     "app.open": ["apps.query", "intent.build", "app.start"],
     "app.list": ["apps.query", "card.render"],
+    "memory.recall": ["persona.read", "facts.recall", "card.render"],
     "help": ["commands.list"],
 }
 
@@ -797,7 +799,7 @@ def g_reminder_list(rng, sp, hf, hv):
     return f"{s} {p}", {}
 
 
-NOTE_VERBS = ["not al", "not et", "not yaz", "notlarıma ekle", "bir kenara yaz", "kaydet", "yaz bir yere",
+NOTE_VERBS = ["not al", "not et", "not yaz", "notlarıma ekle", "bir kenara yaz", "kaydet", "bir yere yaz",
               "not defterime ekle", "deftere yaz", "not düş", "kayda geç", "not olarak kaydet", "bir yere not et",
               "notlara ekle", "not bırak", "yazıver"]
 NOTE_FRAMES = ["{V}: {X}", "şunu {V}: {X}", "{X} diye {V}", "{X}, {V}", "{V} lütfen: {X}", "bunu {V}: {X}",
@@ -905,7 +907,8 @@ MEM_NOTE = ["bunu hatırla", "şunu aklında tut", "aklında olsun", "kalıcı h
             "bunu unutma", "şunu öğren", "bunu bil"]
 MEM_PREF = ["tercihim şu", "benim için kural", "bundan sonra şöyle yap", "bir tercihim var", "kuralım şu",
             "her zaman şöyle olsun", "alışkanlığım şu", "tercihimi kaydet"]
-MEM_SKILL = ["bu adımları beceri olarak kaydet", "beceri olarak kaydet", "bunu beceri olarak öğren", "yeni beceri"]
+# "yeni beceri: X" skill.learn'e aittir (aynı cümle iki komuta etiketlenmesin: model çelişkili veriyle yanlış iş yapar)
+MEM_SKILL = ["bu adımları beceri olarak kaydet", "beceri olarak kaydet", "bunu beceri olarak öğren"]
 
 
 def g_memory(rng, sp, hf, hv):
@@ -1193,6 +1196,23 @@ def g_app_list(rng, sp, hf, hv):
                           "uygulamalarımı listele", "hangi uygulamalarım var"], sp, hf or hv), {}
 
 
+RECALL_TOPICS = ["annem", "babam", "ailem", "eşim", "işim", "okulum", "sağlığım", "rutinlerim", "tercihlerim", "kardeşim",
+                 "arkadaşlarım", "çocuklarım", "evim", "alışkanlıklarım", "sevdiklerim"]
+
+
+def g_memory_recall(rng, sp, hf, hv):
+    """Katmanlı hafıza: Orion kullanıcı hakkında ne biliyor (query: konu, ör. annem)."""
+    if rng.random() < 0.35:
+        t = pick(rng, RECALL_TOPICS, sp)
+        v = G.choose(rng, ["ne biliyorsun", "neler biliyorsun", "ne hatırlıyorsun", "neler hatırlıyorsun"], sp, hv)
+        frame = G.choose(rng, ["{t} hakkında {v}", "benim {t} hakkında {v}", "{t} ile ilgili {v}"], sp, hf)
+        return frame.format(t=t, v=v), {"query": t}
+    return G.choose(rng, ["hakkımda ne biliyorsun", "beni ne kadar tanıyorsun", "beni tanıyor musun", "neleri hatırlıyorsun",
+                          "hafızanda neler var", "hakkımda neler biliyorsun", "beni hatırlıyor musun", "hakkımda bildiklerini göster",
+                          "hafızamı göster", "kişiliğimi özetle", "hakkımda neler öğrendin", "beni ne kadar iyi tanıyorsun"],
+                    sp, hf or hv), {}
+
+
 def g_self_status(rng, sp, hf, hv):
     return G.choose(rng, ["gelişim durumu", "gelişimin ne durumda", "yeni sürüm var mı", "güncelleme var mı", "kendini güncelle",
                           "yeni beyin var mı", "eğitim ne durumda", "gelişimini kontrol et", "gelişimine bak", "yeni beyin sürümü çıktı mı"],
@@ -1207,6 +1227,7 @@ GRAMMAR = {
     "ask": g_ask, "calc.eval": g_calc, "text.translate": g_translate, "help": g_help, "market.crypto": g_crypto,
     "skill.run": g_skill_run, "skill.list": g_skill_list, "skill.learn": g_skill_learn, "skill.record": g_skill_record,
     "agent.hire": g_agent_hire, "mail.check": g_mail_check, "mail.send": g_mail_send, "self.status": g_self_status, "app.open": g_app_open, "app.list": g_app_list,
+    "memory.recall": g_memory_recall,
 }
 GRAMMAR_FRAC = 0.75
 

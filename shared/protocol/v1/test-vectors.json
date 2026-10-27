@@ -257,6 +257,18 @@
    "input": "{\"v\":1,\"id\":\"k2\",\"cmd\":\"market.crypto\",\"args\":{\"coin\":\"bitcoin\",\"currency\":\"jpy\"}}",
    "ok": false,
    "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "hafıza görünümü sorgulu geçerli",
+   "input": "{\"v\":1,\"id\":\"h1\",\"cmd\":\"memory.recall\",\"args\":{\"query\":\"annem\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"query\":\"annem\"},\"cmd\":\"memory.recall\",\"ctx\":{},\"id\":\"h1\",\"v\":1}"
+  },
+  {
+   "name": "hafıza sorgusu sayı olamaz",
+   "input": "{\"v\":1,\"id\":\"h2\",\"cmd\":\"memory.recall\",\"args\":{\"query\":5}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
   }
  ],
  "responses": [
