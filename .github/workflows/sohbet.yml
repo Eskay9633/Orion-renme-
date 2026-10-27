@@ -1,0 +1,94 @@
+name: sohbet-beyni
+
+# Orion'un sohbet beynini (sıfırdan Türkçe dil modeli) eğitir. Her iş en çok ~5,5 saat sürer,
+# kaldığı yerden devam eder (checkpoint önbellekte) ve sonunda modeli Release olarak yayınlar.
+# İşlem deposu (gizli) en yeni Release'i içe aktarır, kendi tabanından geçirir ve APK'ya koyar.
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: 'Toplam hedef adım'
+        default: '120000'
+  schedule:
+    - cron: '17 */6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'core-model/orion_core/chat.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sohbet-beyni
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Başlangıç zamanı
+        run: echo "T0=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bağımlılıklar
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -r core-model/requirements.txt pyarrow
+      - name: Veriyi önbellekten al
+        id: data
+        uses: actions/cache/restore@v4
+        with:
+          path: core-model/work/chat-data
+          key: chat-data-v1
+      - name: Veri hazırla (ilk kez; Türkçe Vikipedi + kişilik diyalogları)
+        id: prep
+        if: steps.data.outputs.cache-hit != 'true'
+        working-directory: core-model
+        run: |
+          python -m orion_core.chat prepare --out work/chat-data
+          rm -rf work/chat-data/hf work/chat-data/raw.txt
+          echo "made=true" >> "$GITHUB_OUTPUT"
+      - name: Veriyi önbelleğe kaydet
+        if: steps.prep.outputs.made == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: core-model/work/chat-data
+          key: chat-data-v1
+      - name: Checkpoint'i geri yükle
+        uses: actions/cache/restore@v4
+        with:
+          path: core-model/work/chat-run
+          key: chat-ckpt-${{ github.run_id }}
+          restore-keys: chat-ckpt-
+      - name: Eğit (kalan süreye göre)
+        working-directory: core-model
+        run: |
+          ELAPSED=$(( ($(date +%s) - T0) / 60 ))
+          BUDGET=$(( 330 - ELAPSED - 20 ))
+          echo "süre bütçesi: $BUDGET dk"
+          python -m orion_core.chat train --data work/chat-data --out work/chat-run \
+            --steps ${{ inputs.steps || '120000' }} --budget-min $BUDGET
+      - name: Checkpoint'i kaydet
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: core-model/work/chat-run
+          key: chat-ckpt-${{ github.run_id }}
+      - name: Dışa aktar (int8) + örnek cevaplar
+        working-directory: core-model
+        run: python -m orion_core.chat export --run work/chat-run --data work/chat-data --out work/chat-export
+      - name: Release olarak yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          STEP=$(python -c "import json;print(json.load(open('core-model/work/chat-run/status.json'))['step'])")
+          TAG="sohbet-$(printf '%07d' $STEP)"
+          NOTES=$(python -c "import json;m=json.load(open('core-model/work/chat-export/manifest.json'));print(f\"adım {m['step']}, görülen belirteç {m['tokens_seen']}, doğrulama ppl {m['val_ppl_int8']:.1f}, kişilik testi {m['persona_ok']}\")")
+          cd core-model/work/chat-export
+          gh release create "$TAG" model.bin tokenizer.json manifest.json parity.json samples.json \
+            --target "$GITHUB_SHA" --title "Sohbet beyni $TAG" --notes "$NOTES" --prerelease \
+            || gh release upload "$TAG" model.bin tokenizer.json manifest.json parity.json samples.json --clobber

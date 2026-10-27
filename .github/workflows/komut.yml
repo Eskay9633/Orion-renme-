@@ -1,0 +1,60 @@
+name: komut-beyni
+
+# Orion'un komut anlama modelini (Türkçe → makine dili) sıfırdan eğitir, değerlendirir ve
+# güvenlik tabanını (shared/core-model/app-floor.json) geçerse Release olarak yayınlar.
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: 'Eğitim adımı'
+        default: '4000'
+  push:
+    branches: [main]
+    paths:
+      - 'core-model/orion_core/datagen.py'
+      - 'core-model/orion_core/grammar.py'
+      - 'shared/protocol/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: komut-beyni
+  cancel-in-progress: true
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bağımlılıklar
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -r core-model/requirements.txt
+      - name: Testler
+        working-directory: core-model
+        run: python -m pytest -q tests
+      - name: Eğit
+        working-directory: core-model
+        run: python -m orion_core.train --out work/run --steps ${{ inputs.steps || '4000' }} --time-budget-min 240
+      - name: Dışa aktar + manifest
+        working-directory: core-model
+        run: |
+          python -m orion_core.export --run work/run --out work/export
+          python -m orion_core.manifest --dir work/export --run work/run
+      - name: Güvenlik tabanı (yanlış iş yapan model yayınlanmaz)
+        working-directory: core-model
+        run: python -m orion_core.evaluate --model work/export --gate
+      - name: Release olarak yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="komut-$(date -u +%Y%m%d-%H%M)"
+          NOTES=$(python -c "import json;m=json.load(open('core-model/work/export/manifest.json'));print(json.dumps(m['eval'],ensure_ascii=False))")
+          cd core-model/work/export
+          gh release create "$TAG" model.bin tokenizer.json parity.json manifest.json eval.json \
+            --target "$GITHUB_SHA" --title "Komut beyni $TAG" --notes "$NOTES"

@@ -1,0 +1,25 @@
+{
+  "doc": "Kişisel/gizli veri temizleme vektörleri. Kotlin (Scrubber.kt) ve Python (scrub.py) aynı çıktıyı vermeli. secret=true ise metin gizli bilgi içeriyor sayılır.",
+  "cases": [
+    {"in": "yarın 10da toplantı", "out": "yarın 10da toplantı", "secret": false},
+    {"in": "anahtarım sk-proj-abcdefghijklmnopqrstuvwx1234", "out": "anahtarım <GIZLI:ANAHTAR>", "secret": true},
+    {"in": "groq gsk_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd", "out": "groq <GIZLI:ANAHTAR>", "secret": true},
+    {"in": "gemini AIzaSyA1234567890abcdefghijklmnopqrstuv", "out": "gemini <GIZLI:ANAHTAR>", "secret": true},
+    {"in": "token ghp_abcdefghijklmnopqrstuvwxyz0123456789", "out": "token <GIZLI:ANAHTAR>", "secret": true},
+    {"in": "Authorization: Bearer abc.def.ghi1234567890", "out": "Authorization: Bearer <GIZLI:ANAHTAR>", "secret": true},
+    {"in": "şifrem: Kedi123!", "out": "şifrem: <GIZLI:PAROLA>", "secret": true},
+    {"in": "parola = hunter2", "out": "parola = <GIZLI:PAROLA>", "secret": true},
+    {"in": "password:abc", "out": "password:<GIZLI:PAROLA>", "secret": true},
+    {"in": "beni 0532 123 45 67 numarasından ara", "out": "beni <GIZLI:TELEFON> numarasından ara", "secret": true},
+    {"in": "+90 532 123 4567", "out": "<GIZLI:TELEFON>", "secret": true},
+    {"in": "mail: ali.veli@example.com", "out": "mail: <GIZLI:EPOSTA>", "secret": true},
+    {"in": "IBAN TR33 0006 1005 1978 6457 8413 26", "out": "IBAN <GIZLI:IBAN>", "secret": true},
+    {"in": "kart 4111 1111 1111 1111", "out": "kart <GIZLI:KART>", "secret": true},
+    {"in": "TC 10000000146", "out": "TC <GIZLI:TCKN>", "secret": true},
+    {"in": "adres: Atatürk Mah. Gül Sok. No:5 Kadıköy", "out": "adres: <GIZLI:ADRES>", "secret": true},
+    {"in": "Bağdat Caddesi No: 12 Daire 3", "out": "<GIZLI:ADRES>", "secret": true},
+    {"in": "2026 yılında 15 kitap okudum", "out": "2026 yılında 15 kitap okudum", "secret": false},
+    {"in": "saat 14:30 da 3 kişi", "out": "saat 14:30 da 3 kişi", "secret": false},
+    {"in": "Eskay9633/Jarvis- reposunu denetle", "out": "Eskay9633/Jarvis- reposunu denetle", "secret": false}
+  ]
+}

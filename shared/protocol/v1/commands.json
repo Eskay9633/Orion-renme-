@@ -1,0 +1,443 @@
+{
+  "protocol": "orion",
+  "v": 1,
+  "doc": "Orion makine dili v1 komut seti. Tek doğruluk kaynağı: Kotlin ve Python doğrulayıcıları bu dosyayı okur.",
+  "types": {
+    "string": "UTF-8 metin; minLen/maxLen ile sınırlanır",
+    "int": "tam sayı; min/max ile sınırlanır",
+    "bool": "true/false",
+    "enum": "values listesinden biri",
+    "when": "zaman ifadesi; PROTOCOL.md 'when' dilbilgisi",
+    "date": "YYYY-MM-DD veya d+N (bugünden N gün sonra)",
+    "repo": "sahip/isim (GitHub)",
+    "uri": "content:// veya file:// veya https:// adresi",
+    "strlist": "metin listesi; maxItems ile sınırlanır"
+  },
+  "commands": {
+    "reminder.set": {
+      "agent": "grace",
+      "doc": "Hatırlatıcı kurar.",
+      "needs_net": false,
+      "args": {
+        "at": {
+          "type": "when",
+          "required": true
+        },
+        "text": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 200
+        },
+        "repeat": {
+          "type": "enum",
+          "values": [
+            "none",
+            "daily",
+            "weekly"
+          ],
+          "default": "none"
+        }
+      }
+    },
+    "reminder.list": {
+      "agent": "grace",
+      "doc": "Bekleyen hatırlatıcıları listeler.",
+      "needs_net": false,
+      "args": {}
+    },
+    "note.write": {
+      "agent": "chloe",
+      "doc": "Not yazar. Gizli bilgi içeren not reddedilir (E_SECRET).",
+      "needs_net": false,
+      "args": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 2000
+        },
+        "tags": {
+          "type": "strlist",
+          "maxItems": 8,
+          "itemMaxLen": 32
+        }
+      }
+    },
+    "note.search": {
+      "agent": "chloe",
+      "doc": "Notlarda arar.",
+      "needs_net": false,
+      "args": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 200
+        },
+        "limit": {
+          "type": "int",
+          "min": 1,
+          "max": 50,
+          "default": 10
+        }
+      }
+    },
+    "research.start": {
+      "agent": "sophia",
+      "doc": "Araştırma görevi başlatır. Bilgi gerektirir: sağlayıcıya araç çağrısı olarak gider.",
+      "needs_net": true,
+      "args": {
+        "topic": {
+          "type": "string",
+          "required": true,
+          "minLen": 2,
+          "maxLen": 300
+        },
+        "depth": {
+          "type": "enum",
+          "values": [
+            "quick",
+            "normal",
+            "deep"
+          ],
+          "default": "normal"
+        }
+      }
+    },
+    "repo.audit": {
+      "agent": "jack",
+      "doc": "GitHub deposunu salt-okunur denetler (son commit, CI durumu, açık konular).",
+      "needs_net": true,
+      "args": {
+        "repo": {
+          "type": "repo",
+          "required": true
+        },
+        "scope": {
+          "type": "enum",
+          "values": [
+            "summary",
+            "ci",
+            "security"
+          ],
+          "default": "summary"
+        }
+      }
+    },
+    "calendar.add": {
+      "agent": "grace",
+      "doc": "Takvime etkinlik ekler.",
+      "needs_net": false,
+      "args": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 200
+        },
+        "start": {
+          "type": "when",
+          "required": true
+        },
+        "minutes": {
+          "type": "int",
+          "min": 5,
+          "max": 1440,
+          "default": 60
+        },
+        "place": {
+          "type": "string",
+          "maxLen": 200
+        }
+      }
+    },
+    "calendar.list": {
+      "agent": "grace",
+      "doc": "Bir günün etkinliklerini listeler.",
+      "needs_net": false,
+      "args": {
+        "day": {
+          "type": "date",
+          "default": "d+0"
+        }
+      }
+    },
+    "file.summarize": {
+      "agent": "chloe",
+      "doc": "Dosya özeti çıkarır. Çevrimdışıyken yerel özetleyici kullanılır.",
+      "needs_net": false,
+      "args": {
+        "uri": {
+          "type": "uri",
+          "required": true
+        },
+        "length": {
+          "type": "enum",
+          "values": [
+            "short",
+            "medium",
+            "long"
+          ],
+          "default": "short"
+        }
+      }
+    },
+    "image.analyze": {
+      "agent": "jack",
+      "doc": "Fotoğraf ya da ekran görüntüsünü okur (telefonda OCR), soruyu cevaplar ya da gördüğü sorunu çözmeye çalışır. İnternet yoksa kendi beyniyle çalışır.",
+      "needs_net": false,
+      "args": {
+        "uri": {
+          "type": "uri",
+          "required": true
+        },
+        "question": {
+          "type": "string",
+          "maxLen": 500
+        }
+      }
+    },
+    "image.generate": {
+      "agent": "luna",
+      "doc": "Tarife göre resim oluşturur (yardımcı sağlayıcı gerekir; anahtarsız seçenek: Pollinations).",
+      "needs_net": true,
+      "args": {
+        "prompt": {
+          "type": "string",
+          "required": true,
+          "minLen": 2,
+          "maxLen": 500
+        },
+        "size": {
+          "type": "enum",
+          "values": [
+            "square",
+            "portrait",
+            "landscape"
+          ],
+          "default": "square"
+        }
+      }
+    },
+    "card.propose": {
+      "agent": "luna",
+      "doc": "Ana ekrana kart önerir. Yalnızca sabit 8 bileşen; serbest kod yok. Kullanıcı onaylar.",
+      "needs_net": false,
+      "args": {
+        "kind": {
+          "type": "enum",
+          "required": true,
+          "values": [
+            "note",
+            "reminder",
+            "chart",
+            "research",
+            "approval",
+            "list",
+            "timer",
+            "metric"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 80
+        },
+        "source": {
+          "type": "enum",
+          "values": [
+            "notes",
+            "reminders",
+            "calendar",
+            "research",
+            "quota",
+            "manual"
+          ],
+          "default": "manual"
+        },
+        "refresh": {
+          "type": "enum",
+          "values": [
+            "none",
+            "hourly",
+            "daily",
+            "weekly"
+          ],
+          "default": "none"
+        },
+        "size": {
+          "type": "enum",
+          "values": [
+            "half",
+            "full"
+          ],
+          "default": "half"
+        }
+      }
+    },
+    "timer.start": {
+      "agent": "grace",
+      "doc": "Geri sayım başlatır.",
+      "needs_net": false,
+      "args": {
+        "minutes": {
+          "type": "int",
+          "required": true,
+          "min": 1,
+          "max": 1440
+        },
+        "label": {
+          "type": "string",
+          "maxLen": 80
+        }
+      }
+    },
+    "provider.discover": {
+      "agent": "sophia",
+      "doc": "Yeni ücretsiz yapay zeka sağlayıcısı arar. Bulunanlar KAPALI ve 'doğrulanmadı' olarak öneri listesine düşer; kullanıcı onaylamadan kullanılmaz.",
+      "needs_net": true,
+      "args": {
+        "need": {
+          "type": "string",
+          "maxLen": 200
+        }
+      }
+    },
+    "health.check": {
+      "agent": "maya",
+      "doc": "Telefon sağlığı ön kontrolü (pil, boş alan, son yedek).",
+      "needs_net": false,
+      "args": {
+        "purpose": {
+          "type": "enum",
+          "values": [
+            "general",
+            "update"
+          ],
+          "default": "general"
+        }
+      }
+    },
+    "memory.save": {
+      "agent": "mike",
+      "doc": "Kalıcı hafızaya kayıt ÖNERİR; kullanıcı onayı olmadan kaydedilmez.",
+      "needs_net": false,
+      "args": {
+        "kind": {
+          "type": "enum",
+          "required": true,
+          "values": [
+            "note",
+            "skill",
+            "preference"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 2000
+        }
+      }
+    },
+    "ask": {
+      "agent": "mike",
+      "doc": "Genel soru-cevap ve sohbet. Önce Orion'un kendi beyni (telefondaki model), gerekirse yardımcılar.",
+      "needs_net": false,
+      "args": {
+        "question": {
+          "type": "string",
+          "required": true,
+          "minLen": 2,
+          "maxLen": 1000
+        }
+      }
+    },
+    "calc.eval": {
+      "agent": "chloe",
+      "doc": "Hesap makinesi: dört işlem, üs, parantez, yüzde. İnternetsiz.",
+      "needs_net": false,
+      "args": {
+        "expr": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 200
+        }
+      }
+    },
+    "text.translate": {
+      "agent": "emma",
+      "doc": "Metni başka dile çevirir (önce kendi beyni).",
+      "needs_net": false,
+      "args": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "minLen": 1,
+          "maxLen": 2000
+        },
+        "to": {
+          "type": "enum",
+          "values": [
+            "en",
+            "tr",
+            "de",
+            "fr",
+            "es",
+            "ar",
+            "ru",
+            "it"
+          ],
+          "default": "en"
+        }
+      }
+    },
+    "help": {
+      "agent": "mike",
+      "doc": "Yapılabilecek işleri listeler.",
+      "needs_net": false,
+      "args": {}
+    }
+  },
+  "agents": [
+    "mike",
+    "sophia",
+    "emma",
+    "luna",
+    "david",
+    "jack",
+    "chloe",
+    "grace",
+    "maya"
+  ],
+  "statuses": [
+    "ok",
+    "error",
+    "pending",
+    "needs_confirmation"
+  ],
+  "error_codes": {
+    "E_PARSE": "Geçerli JSON değil",
+    "E_VERSION": "Desteklenmeyen protokol sürümü",
+    "E_SCHEMA": "Zarf alanları eksik ya da yanlış türde (v, id, cmd, args, ctx)",
+    "E_UNKNOWN_CMD": "Bilinmeyen komut",
+    "E_ARG_MISSING": "Zorunlu argüman eksik",
+    "E_ARG_UNKNOWN": "Tanımsız argüman",
+    "E_ARG_TYPE": "Argüman türü yanlış",
+    "E_ARG_RANGE": "Argüman sınır dışında",
+    "E_AMBIGUOUS": "İstek belirsiz; kullanıcıya soru sorulmalı",
+    "E_OFFLINE": "İnternet gerekiyor ama bağlantı yok",
+    "E_QUOTA": "Tüm sağlayıcıların kotası dolu",
+    "E_PROVIDER": "Sağlayıcı hata döndü",
+    "E_PERMISSION": "İzin yok ya da kullanıcı reddetti",
+    "E_NOT_FOUND": "Kayıt bulunamadı",
+    "E_SECRET": "Gizli bilgi içeriyor; kaydedilmez/gönderilmez",
+    "E_TIMEOUT": "Zaman aşımı",
+    "E_NO_BRAIN": "Cevap verecek beyin (telefon modeli ya da yardımcı) yok",
+    "E_BUSY": "Beyin meşgul ya da süre doldu",
+    "E_INTERNAL": "İç hata"
+  }
+}

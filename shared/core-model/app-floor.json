@@ -1,0 +1,8 @@
+{
+  "_doc": "Uygulamaya girme tabanı (güvenlik). Olgunluk kapısı gate.json'dur ve değişmedi; geçmeyen model 'gelişiyor' etiketiyle girer (kullanıcı kararı, Tur 3). Burada ölçülen: emin olmadığında susarak YANLIŞ İŞ yapmaması.",
+  "t2c_iid_valid": 0.95,
+  "coverage_iid_min": 0.6,
+  "wrong_actions_iid_max": 0.03,
+  "wrong_actions_ood_max": 0.05,
+  "wrong_actions_legacy_ood_max": 0.05
+}

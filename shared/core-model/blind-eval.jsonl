@@ -1,0 +1,25 @@
+{"src": "yarın sabah yedide koşuya çıkmayı hatırlat", "tgt": "{\"args\":{\"at\":\"d+1@07:00\",\"text\":\"koşuya çıkmak\"},\"cmd\":\"reminder.set\"}"}
+{"src": "akşam 8 buçukta ilacımı içmeyi unutmayayım", "tgt": "{\"args\":{\"at\":\"d+0@20:30\",\"text\":\"ilacımı içmek\"},\"cmd\":\"reminder.set\"}"}
+{"src": "yarım saat sonra fırına bak diye hatırlat", "tgt": "{\"args\":{\"at\":\"+30m\",\"text\":\"fırına bak\"},\"cmd\":\"reminder.set\"}"}
+{"src": "cuma günü saat 17'de haftalık raporu göndermeyi hatırlat", "tgt": "{\"args\":{\"at\":\"fri@17:00\",\"text\":\"haftalık raporu göndermek\"},\"cmd\":\"reminder.set\"}"}
+{"src": "1 Kasım saat 9'da sigorta yenileme hatırlat", "tgt": "{\"args\":{\"at\":\"11-01@09:00\",\"text\":\"sigorta yenileme\"},\"cmd\":\"reminder.set\"}"}
+{"src": "not al: anahtarlar mutfak çekmecesinde", "tgt": "{\"args\":{\"text\":\"anahtarlar mutfak çekmecesinde\"},\"cmd\":\"note.write\"}"}
+{"src": "şunu kaydet bir yere: kombi filtresi ayda bir temizlenecek", "tgt": "{\"args\":{\"text\":\"kombi filtresi ayda bir temizlenecek\"},\"cmd\":\"note.write\"}"}
+{"src": "sigorta hakkında not var mı", "tgt": "{\"args\":{\"query\":\"sigorta\"},\"cmd\":\"note.search\"}"}
+{"src": "notlarımda anahtar ara", "tgt": "{\"args\":{\"query\":\"anahtar\"},\"cmd\":\"note.search\"}"}
+{"src": "türkiyede elektrikli araba şarj istasyonlarını araştır", "tgt": "{\"args\":{\"topic\":\"türkiyede elektrikli araba şarj istasyonları\"},\"cmd\":\"research.start\"}"}
+{"src": "kahve çekirdeği çeşitleri hakkında kısaca araştırma yap", "tgt": "{\"args\":{\"depth\":\"quick\",\"topic\":\"kahve çekirdeği çeşitleri\"},\"cmd\":\"research.start\"}"}
+{"src": "Eskay9633/Jarvis- güvenlik açıklarına bak", "tgt": "{\"args\":{\"repo\":\"Eskay9633/Jarvis-\",\"scope\":\"security\"},\"cmd\":\"repo.audit\"}"}
+{"src": "square/okhttp reposunu incele", "tgt": "{\"args\":{\"repo\":\"square/okhttp\"},\"cmd\":\"repo.audit\"}"}
+{"src": "salı 10:00'da takvime diş kontrolü ekle", "tgt": "{\"args\":{\"start\":\"tue@10:00\",\"title\":\"diş kontrolü\"},\"cmd\":\"calendar.add\"}"}
+{"src": "yarın 19'da annemlerle yemek var takvime ekle", "tgt": "{\"args\":{\"start\":\"d+1@19:00\",\"title\":\"annemlerle yemek\"},\"cmd\":\"calendar.add\"}"}
+{"src": "bugün programımda ne var", "tgt": "{\"args\":{\"day\":\"d+0\"},\"cmd\":\"calendar.list\"}"}
+{"src": "öbür gün neler var", "tgt": "{\"args\":{\"day\":\"d+2\"},\"cmd\":\"calendar.list\"}"}
+{"src": "bu pdf'i uzun uzun özetle", "tgt": "{\"args\":{\"length\":\"long\",\"uri\":\"content://orion/ek\"},\"cmd\":\"file.summarize\"}"}
+{"src": "liste kartı ekle: Alışveriş", "tgt": "{\"args\":{\"kind\":\"list\",\"title\":\"Alışveriş\"},\"cmd\":\"card.propose\"}"}
+{"src": "metrik kartı ekle: Adım sayısı", "tgt": "{\"args\":{\"kind\":\"metric\",\"title\":\"Adım sayısı\"},\"cmd\":\"card.propose\"}"}
+{"src": "25 dakikalık sayaç kur", "tgt": "{\"args\":{\"minutes\":25},\"cmd\":\"timer.start\"}"}
+{"src": "görsel üretmek için ücretsiz yapay zeka bul", "tgt": "{\"args\":{\"need\":\"görsel üretmek\"},\"cmd\":\"provider.discover\"}"}
+{"src": "telefonun pili ve depolaması nasıl, kontrol et", "tgt": "{\"args\":{},\"cmd\":\"health.check\"}"}
+{"src": "tercihim şu: sabah 9'dan önce bildirim gönderme", "tgt": "{\"args\":{\"kind\":\"preference\",\"text\":\"sabah 9'dan önce bildirim gönderme\"},\"cmd\":\"memory.save\"}"}
+{"src": "yardım", "tgt": "{\"args\":{},\"cmd\":\"help\"}"}

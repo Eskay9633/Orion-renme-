@@ -1,0 +1,7 @@
+{
+  "t2c_iid_exact": 0.85,
+  "t2c_ood_exact": 0.5,
+  "t2c_iid_valid": 0.95,
+  "plan_exact": 0.95,
+  "ans_exact": 0.9
+}

@@ -1,0 +1,297 @@
+{
+ "doc": "Kotlin ve Python doğrulayıcılarının AYNI sonucu vermesi gereken ortak test vektörleri. canonical: alanları doldurulmuş, anahtarları sıralı, boşluksuz biçim.",
+ "requests": [
+  {
+   "name": "not yaz geçerli",
+   "input": "{\"v\":1,\"id\":\"a1\",\"cmd\":\"note.write\",\"args\":{\"text\":\"süt al\"},\"ctx\":{}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"text\":\"süt al\"},\"cmd\":\"note.write\",\"ctx\":{},\"id\":\"a1\",\"v\":1}"
+  },
+  {
+   "name": "ctx olmadan da geçerli, varsayılan doldurulur",
+   "input": "{\"v\":1,\"id\":\"a2\",\"cmd\":\"note.search\",\"args\":{\"query\":\"süt\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"limit\":10,\"query\":\"süt\"},\"cmd\":\"note.search\",\"ctx\":{},\"id\":\"a2\",\"v\":1}"
+  },
+  {
+   "name": "hatırlatıcı göreli zaman",
+   "input": "{\"v\":1,\"id\":\"r1\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"d+1@10:00\",\"text\":\"toplantı\"},\"ctx\":{\"agent\":\"grace\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"at\":\"d+1@10:00\",\"repeat\":\"none\",\"text\":\"toplantı\"},\"cmd\":\"reminder.set\",\"ctx\":{\"agent\":\"grace\"},\"id\":\"r1\",\"v\":1}"
+  },
+  {
+   "name": "hatırlatıcı mutlak zaman",
+   "input": "{\"v\":1,\"id\":\"r2\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"2026-10-27T09:30\",\"text\":\"ilaç\",\"repeat\":\"daily\"}}",
+   "ok": true
+  },
+  {
+   "name": "hatırlatıcı dakika sonra",
+   "input": "{\"v\":1,\"id\":\"r3\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"+15m\",\"text\":\"çay\"}}",
+   "ok": true
+  },
+  {
+   "name": "hatırlatıcı hafta günü",
+   "input": "{\"v\":1,\"id\":\"r4\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"fri@14:00\",\"text\":\"dişçi\"}}",
+   "ok": true
+  },
+  {
+   "name": "hatırlatıcı ay-gün",
+   "input": "{\"v\":1,\"id\":\"r5\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"10-29@08:00\",\"text\":\"bayram\"}}",
+   "ok": true
+  },
+  {
+   "name": "geçersiz JSON",
+   "input": "{\"v\":1,\"id\":",
+   "ok": false,
+   "err_code": "E_PARSE"
+  },
+  {
+   "name": "dizi kök",
+   "input": "[1,2]",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "yanlış sürüm",
+   "input": "{\"v\":2,\"id\":\"x\",\"cmd\":\"help\",\"args\":{}}",
+   "ok": false,
+   "err_code": "E_VERSION"
+  },
+  {
+   "name": "sürüm ondalık",
+   "input": "{\"v\":1.0,\"id\":\"x\",\"cmd\":\"help\",\"args\":{}}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "id eksik",
+   "input": "{\"v\":1,\"cmd\":\"help\",\"args\":{}}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "id geçersiz karakter",
+   "input": "{\"v\":1,\"id\":\"a b\",\"cmd\":\"help\",\"args\":{}}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "fazladan üst alan",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"help\",\"args\":{},\"foo\":1}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "args nesne değil",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"help\",\"args\":[]}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "geçersiz ajan",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"help\",\"args\":{},\"ctx\":{\"agent\":\"jarvis\"}}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "bilinmeyen komut",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"shell.exec\",\"args\":{}}",
+   "ok": false,
+   "err_code": "E_UNKNOWN_CMD"
+  },
+  {
+   "name": "zorunlu argüman eksik",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.write\",\"args\":{}}",
+   "ok": false,
+   "err_code": "E_ARG_MISSING"
+  },
+  {
+   "name": "tanımsız argüman",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.write\",\"args\":{\"text\":\"a\",\"color\":\"red\"}}",
+   "ok": false,
+   "err_code": "E_ARG_UNKNOWN"
+  },
+  {
+   "name": "metin yerine sayı",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.write\",\"args\":{\"text\":5}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "boş metin",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.write\",\"args\":{\"text\":\"\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "limit sınır dışı",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.search\",\"args\":{\"query\":\"a\",\"limit\":500}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "limit ondalık",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.search\",\"args\":{\"query\":\"a\",\"limit\":2.5}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "limit bool",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.search\",\"args\":{\"query\":\"a\",\"limit\":true}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "enum dışı",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"research.start\",\"args\":{\"topic\":\"fiyatlar\",\"depth\":\"ultra\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "zaman biçimi yanlış",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"yarın\",\"text\":\"a\"}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "zaman saat 25",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"d+1@25:00\",\"text\":\"a\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "zaman ay 13",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"reminder.set\",\"args\":{\"at\":\"2026-13-01T10:00\",\"text\":\"a\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "repo biçimi",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"repo.audit\",\"args\":{\"repo\":\"sadece-isim\"}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "repo geçerli",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"repo.audit\",\"args\":{\"repo\":\"Eskay9633/Jarvis-\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"repo\":\"Eskay9633/Jarvis-\",\"scope\":\"summary\"},\"cmd\":\"repo.audit\",\"ctx\":{},\"id\":\"x\",\"v\":1}"
+  },
+  {
+   "name": "uri geçersiz şema",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"file.summarize\",\"args\":{\"uri\":\"javascript:alert(1)\"}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "etiket listesi çok uzun",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.write\",\"args\":{\"text\":\"a\",\"tags\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\"]}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "etiket listesi yanlış öğe",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"note.write\",\"args\":{\"text\":\"a\",\"tags\":[1]}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "takvim tarih",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"calendar.list\",\"args\":{\"day\":\"2026-10-30\"}}",
+   "ok": true
+  },
+  {
+   "name": "takvim tarih göreli",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"calendar.list\",\"args\":{\"day\":\"d+2\"}}",
+   "ok": true
+  },
+  {
+   "name": "takvim tarih bozuk",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"calendar.list\",\"args\":{\"day\":\"2026-02-30\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "kart önerisi",
+   "input": "{\"v\":1,\"id\":\"x\",\"cmd\":\"card.propose\",\"args\":{\"kind\":\"chart\",\"title\":\"Haftalık harcama\",\"source\":\"notes\",\"refresh\":\"weekly\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"kind\":\"chart\",\"refresh\":\"weekly\",\"size\":\"half\",\"source\":\"notes\",\"title\":\"Haftalık harcama\"},\"cmd\":\"card.propose\",\"ctx\":{},\"id\":\"x\",\"v\":1}"
+  },
+  {
+   "name": "kaçış karakterleri kanonik",
+   "input": "{\"v\":1,\"id\":\"q\",\"cmd\":\"note.write\",\"args\":{\"text\":\"a\\\"b\\\\c\\nd\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"text\":\"a\\\"b\\\\c\\nd\"},\"cmd\":\"note.write\",\"ctx\":{},\"id\":\"q\",\"v\":1}"
+  },
+  {
+   "name": "resim analizi",
+   "input": "{\"v\":1,\"id\":\"i1\",\"cmd\":\"image.analyze\",\"args\":{\"uri\":\"content://media/1\",\"question\":\"hata ne?\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"question\":\"hata ne?\",\"uri\":\"content://media/1\"},\"cmd\":\"image.analyze\",\"ctx\":{},\"id\":\"i1\",\"v\":1}"
+  },
+  {
+   "name": "resim üretimi varsayılan boyut",
+   "input": "{\"v\":1,\"id\":\"i2\",\"cmd\":\"image.generate\",\"args\":{\"prompt\":\"gün batımında İstanbul\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"prompt\":\"gün batımında İstanbul\",\"size\":\"square\"},\"cmd\":\"image.generate\",\"ctx\":{},\"id\":\"i2\",\"v\":1}"
+  },
+  {
+   "name": "resim üretimi boyut dışı",
+   "input": "{\"v\":1,\"id\":\"i3\",\"cmd\":\"image.generate\",\"args\":{\"prompt\":\"kedi\",\"size\":\"huge\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
+  },
+  {
+   "name": "soru",
+   "input": "{\"v\":1,\"id\":\"q1\",\"cmd\":\"ask\",\"args\":{\"question\":\"kara delik nedir\"}}",
+   "ok": true
+  }
+ ],
+ "responses": [
+  {
+   "name": "başarılı cevap",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"ok\",\"result\":{\"note_id\":3},\"err_code\":null,\"next\":[]}",
+   "ok": true
+  },
+  {
+   "name": "hata cevabı",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"error\",\"result\":null,\"err_code\":\"E_OFFLINE\",\"next\":[]}",
+   "ok": true
+  },
+  {
+   "name": "hata ama kod yok",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"error\",\"result\":null,\"err_code\":null,\"next\":[]}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "ok ama kod var",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"ok\",\"result\":{},\"err_code\":\"E_PARSE\",\"next\":[]}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "bilinmeyen durum",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"maybe\",\"result\":{},\"err_code\":null,\"next\":[]}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "bilinmeyen hata kodu",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"error\",\"result\":null,\"err_code\":\"E_WHAT\",\"next\":[]}",
+   "ok": false,
+   "err_code": "E_SCHEMA"
+  },
+  {
+   "name": "next içinde geçerli komut",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"pending\",\"result\":{},\"err_code\":null,\"next\":[{\"v\":1,\"id\":\"a1.1\",\"cmd\":\"note.write\",\"args\":{\"text\":\"özet\"}}]}",
+   "ok": true
+  },
+  {
+   "name": "next içinde geçersiz komut",
+   "input": "{\"v\":1,\"id\":\"a1\",\"status\":\"pending\",\"result\":{},\"err_code\":null,\"next\":[{\"v\":1,\"id\":\"a1.1\",\"cmd\":\"rm.rf\",\"args\":{}}]}",
+   "ok": false,
+   "err_code": "E_UNKNOWN_CMD"
+  }
+ ]
+}
