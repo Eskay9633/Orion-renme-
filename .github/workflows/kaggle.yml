@@ -76,13 +76,13 @@ jobs:
           TAG="sohbet-kaggle-${{ steps.st.outputs.size }}-$(printf '%07d' $STEP)"
           if gh release view "$TAG" >/dev/null 2>&1; then echo "Zaten yayınlandı: $TAG"; echo "next=start" >> "$GITHUB_OUTPUT"
           else
-            NOTES=$(python -c "import json;m=json.load(open('$M'));print(f\"Kaggle GPU · {m['params']:,} parametre · adım {m['step']} · ppl {m['val_ppl_int8']:.1f} · kişilik {m['persona_ok']}\")")
+            NOTES=$(python -c "import json;m=json.load(open('$M'));print(f\"Kaggle GPU · {m['params']:,} parametre · adım {m['step']} · ppl {m['val_ppl_int8']:.1f} · kişilik {m['persona_ok']} · sınav {m.get('qa_score')}\")")
             gh release create "$TAG" $EXP/model.bin $EXP/tokenizer.json $EXP/manifest.json $EXP/parity.json $EXP/samples.json \
               --target "$GITHUB_SHA" --title "Sohbet beyni (Kaggle) $TAG" --notes "$NOTES" --prerelease
             # Devam için checkpoint (sonraki oturum indirir)
             CK="kaggle-devam-${{ steps.st.outputs.size }}"
             gh release view "$CK" >/dev/null 2>&1 || gh release create "$CK" --title "Kaggle devam noktası" --notes "Eğitimin kaldığı yer (otomatik)" --prerelease
-            gh release upload "$CK" "$RUN/ckpt.pt" --clobber
+            gh release upload "$CK" "$RUN/ckpt.pt" "$RUN/tokenizer.json" --clobber
             echo "next=start" >> "$GITHUB_OUTPUT"
           fi
           DONE=$(python -c "import json;print(json.load(open('$M'))['step'] >= ${{ steps.st.outputs.steps }})")
@@ -93,7 +93,12 @@ jobs:
           SIZE=${{ steps.st.outputs.size }}; STEPS=${{ steps.st.outputs.steps }}
           if [ "$SIZE" = "buyuk" ]; then BATCH=24; else BATCH=32; fi
           mkdir -p kpush
-          sed -e "s/__SIZE__/$SIZE/g" -e "s/__STEPS__/$STEPS/" -e "s/__BATCH__/$BATCH/" -e "s/__BUDGET__/640/" kaggle/orion_sohbet.py > kpush/orion_sohbet.py
+          # Devam ederken tokenizer AYNI olmalı: devam noktasındaki, yoksa en son Kaggle sürümündeki tokenizer
+          R="https://github.com/$GITHUB_REPOSITORY/releases/download"
+          if gh release view "kaggle-devam-$SIZE" --json assets -q '.assets[].name' 2>/dev/null | grep -qx tokenizer.json; then TOK="$R/kaggle-devam-$SIZE/tokenizer.json"
+          else LAST=$(gh release list --limit 100 --json tagName -q '.[].tagName' | grep "^sohbet-kaggle-$SIZE-" | sort | tail -1); TOK=${LAST:+$R/$LAST/tokenizer.json}; fi
+          echo "tokenizer: ${TOK:-yok (ilk eğitim)}"
+          sed -e "s#__TOK__#$TOK#" -e "s/__SIZE__/$SIZE/g" -e "s/__STEPS__/$STEPS/" -e "s/__BATCH__/$BATCH/" -e "s/__BUDGET__/640/" kaggle/orion_sohbet.py > kpush/orion_sohbet.py
           cat > kpush/kernel-metadata.json <<JSON
           {"id": "${{ steps.st.outputs.kid }}", "title": "orion-sohbet-$SIZE", "code_file": "orion_sohbet.py",
            "language": "python", "kernel_type": "script", "is_private": true,

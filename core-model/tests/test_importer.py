@@ -17,3 +17,15 @@ def test_chat_floor():
     assert not chat_ok({"val_ppl_int8": 40, "persona_ok": False, "sha256": "x"}, FLOOR, None)[0]
     assert chat_ok({"val_ppl_int8": 40, "persona_ok": True, "sha256": "x"}, FLOOR, None)[0]
     assert not chat_ok({"val_ppl_int8": 45, "persona_ok": True, "sha256": "y"}, FLOOR, {"val_ppl_int8": 40, "sha256": "x"})[0]
+
+
+def test_chat_exam_floor():
+    """Sınav sorularına soruya bağlı doğru cevap vermeyen (ezber) sohbet beyni alınmaz; gerçek taban dosyası da bunu ister."""
+    import json
+    from orion_core import SHARED
+    real = json.loads((SHARED / "chat-model-floor.json").read_text(encoding="utf-8"))
+    assert real["qa_min"] >= 0.7
+    floor = dict(FLOOR, qa_min=0.7)
+    assert not chat_ok({"val_ppl_int8": 14, "persona_ok": True, "qa_score": 0.3, "sha256": "x"}, floor, None)[0]
+    assert not chat_ok({"val_ppl_int8": 14, "persona_ok": True, "sha256": "x"}, floor, None)[0]
+    assert chat_ok({"val_ppl_int8": 14, "persona_ok": True, "qa_score": 0.8, "sha256": "x"}, floor, None)[0]

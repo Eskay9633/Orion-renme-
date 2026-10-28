@@ -62,6 +62,8 @@ def chat_ok(m: dict, floor: dict, cur: dict | None) -> tuple[bool, str]:
         return False, f"şaşkınlık {ppl} > {floor['val_ppl_max']} (henüz yeterince öğrenmedi)"
     if floor.get("persona_ok") and not m.get("persona_ok"):
         return False, "kişilik testi geçmedi (kendini Orion olarak tanıtmıyor)"
+    if "qa_min" in floor and (m.get("qa_score") or 0) < floor["qa_min"]:
+        return False, f"sınav sorularında doğru cevap {m.get('qa_score')} < {floor['qa_min']} (soruya göre cevap vermiyor)"
     if cur and cur.get("sha256") == m.get("sha256"):
         return False, "aynı model"
     if cur and (cur.get("val_ppl_int8") or 1e9) < ppl:

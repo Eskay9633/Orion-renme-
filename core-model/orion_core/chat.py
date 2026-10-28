@@ -78,42 +78,8 @@ def wikipedia_texts(cache: Path, max_chars: int):
                     return
 
 
-def persona_dialogues(n: int, seed: int = 7) -> list[str]:
-    """Orion'un kendisi hakkında kendi yazdığımız kısa diyaloglar (lisans sorunu yok)."""
-    rng = random.Random(seed)
-    who = ["sen kimsin", "adın ne", "kendini tanıtır mısın", "sen nesin", "seni kim yaptı", "sen bir yapay zeka mısın"]
-    who_a = ["Ben Orion. Telefonunda yaşayan, kendi beyniyle düşünen bir yapay zekayım. Hatırlatıcı, not, takvim ve daha fazlasında yardım ederim.",
-             "Adım Orion. Sıfırdan eğitilmiş kendi modelimle çalışıyorum ve her gün biraz daha öğreniyorum.",
-             "Ben Orion; senin asistanınım. Mike, Sophia, Emma, Luna, David, Jack, Chloe, Grace ve Maya'dan oluşan bir ekibim var."]
-    hi = ["merhaba", "selam", "günaydın", "iyi akşamlar", "naber", "selam Orion", "hey"]
-    hi_a = ["Merhaba! Bugün ne yapalım?", "Selam! Nasılsın, sana nasıl yardım edebilirim?", "Günaydın! Gününü planlamamı ister misin?",
-            "Merhaba, buradayım. Ne lazım?"]
-    mood = [("çok sıkıldım", "Sıkıldıysan küçük bir şey deneyelim: 10 dakikalık bir yürüyüş, yeni bir tarif ya da bir hobi listesi çıkarabilirim."),
-            ("bugün çok yorgunum", "Anlıyorum. Kısa bir mola iyi gelebilir. İstersen akşam için rahatlatıcı bir plan yapalım."),
-            ("moralim bozuk", "Üzüldüm. Konuşmak istersen dinliyorum; istersen seni biraz oyalayacak bir şey önerebilirim."),
-            ("çok mutluyum", "Harika! Bu güzel enerjiyle bugün ne yapmak istersin?"),
-            ("canım bir şey yapmak istemiyor", "Olur, bazen dinlenmek de gerekir. Hafif bir dizi ya da müzik önerebilirim."),
-            ("bana bir hobi öner", "Fotoğrafçılık, satranç, bahçecilik, kodlama ya da gitar olabilir. Hangisi ilgini çekiyor?")]
-    thanks = [("teşekkürler", "Rica ederim!"), ("sağ ol", "Ne demek, her zaman."), ("eline sağlık", "Teşekkürler, yardımcı olabildiysem ne mutlu.")]
-    cant = [("bana para gönder", "Bunu yapamam; ödeme ve para transferi yetkim yok."),
-            ("şifremi söyle", "Şifrelerini bilmiyorum ve saklamam. Gizli bilgileri asla kaydetmem."),
-            ("dünyanın en zengin insanı kim", "Bu bilgi sık değişir; emin değilim. İstersen internetten güncel araştırma yapabilirim.")]
-    out = []
-    for _ in range(n):
-        r = rng.random()
-        if r < 0.3:
-            q, a = rng.choice(who), rng.choice(who_a)
-        elif r < 0.55:
-            q, a = rng.choice(hi), rng.choice(hi_a)
-        elif r < 0.8:
-            q, a = rng.choice(mood)
-        elif r < 0.9:
-            q, a = rng.choice(thanks)
-        else:
-            q, a = rng.choice(cant)
-        q = q[:1].upper() + q[1:] if rng.random() < 0.5 else q
-        out.append(f"{USER}{q}\n{BOT}{a}")
-    return out
+# Kişilik/yetenek diyalogları ve açık lisanslı Türkçe diyaloglar: dialogs.py
+from .dialogs import QA_TESTS, open_dialogues, persona_dialogues, qa_score  # noqa: E402
 
 
 def encode_to(path: Path, bpe: BPE, texts) -> int:
@@ -134,7 +100,9 @@ def encode_to(path: Path, bpe: BPE, texts) -> int:
     return n
 
 
-def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_000_000, texts=None) -> dict:
+def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_000_000, texts=None,
+            tokenizer: Path | None = None, open_data: bool = True) -> dict:
+    """tokenizer: önceki eğitimin tokenizer'ı (Kaggle'da kaldığı yerden devam ederken AYNI olmalı)."""
     out.mkdir(parents=True, exist_ok=True)
     raw = out / "raw.txt"
     if not raw.exists():
@@ -144,7 +112,11 @@ def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_00
                 f.write(t.replace("\x00", " ") + "\x00")
     docs = raw.read_text(encoding="utf-8").split("\x00")
     docs = [d for d in docs if d.strip()]
-    dialogs = persona_dialogues(20000)
+    dialogs = persona_dialogues(60000)
+    open_texts, open_stats = open_dialogues(out / "hf-dialog") if open_data else ([], {})
+    if tokenizer is not None and Path(tokenizer).exists() and not (out / "tokenizer.json").exists():
+        import shutil
+        shutil.copy(tokenizer, out / "tokenizer.json")
     if not (out / "tokenizer.json").exists():
         sample, size = [], 0
         for d in docs:
@@ -163,9 +135,11 @@ def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_00
         "docs": len(docs), "chars": sum(map(len, docs)),
         "train_tokens": encode_to(out / "train.bin", bpe, docs[n_val:]),
         "val_tokens": encode_to(out / "val.bin", bpe, docs[:n_val]),
-        "dialog_tokens": encode_to(out / "dialog.bin", bpe, dialogs),
+        "dialog_tokens": encode_to(out / "dialog.bin", bpe, dialogs + open_texts + open_texts),
+        "persona_dialogs": len(dialogs), "open_dialogs": open_stats,
         "vocab": bpe.vocab_size,
-        "source": "Türkçe Vikipedi (wikimedia/wikipedia 20231101.tr, CC BY-SA 3.0/GFDL) + Orion kişilik diyalogları",
+        "source": "Türkçe Vikipedi (wikimedia/wikipedia 20231101.tr, CC BY-SA 3.0/GFDL) + Orion kişilik/yetenek diyalogları + "
+                  "CohereForAI/aya_dataset (Apache-2.0) + OpenAssistant/oasst2 (Apache-2.0) Türkçe diyalogları",
     }
     (out / "data.json").write_text(json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
     return stats
@@ -301,6 +275,7 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
 # --------------------------------------------------------------------------- telefona aktarma
 
 PERSONA_TESTS = [("Sen kimsin?", "Orion"), ("Merhaba", None), ("Çok sıkıldım", None)]
+# QA_TESTS (dialogs.py): eğitimde geçmeyen soru biçimleri; "doğru soruya doğru cevap" sınavı
 
 
 def prompt_for(question: str) -> str:
@@ -359,9 +334,12 @@ def export_chat(run: Path, data: Path, out: Path) -> dict:
     status = json.loads((run / "status.json").read_text()) if (run / "status.json").exists() else {}
     vl = val_loss(m, data, m.config.ctx) if (data / "val.bin").exists() else float("nan")
     persona_ok = "Orion" in cases[0]["greedy_text"]
+    qa = [{"soru": q, "cevap": generate(m, bpe, prompt_for(q), max_new=50)} for q, _ in QA_TESTS]
+    (out / "samples.json").write_text(json.dumps(samples + [{"sinav": x} for x in qa], ensure_ascii=False, indent=1), encoding="utf-8")
+    qa_ok = qa_score([x["cevap"] for x in qa])
     manifest = {"kind": "chat", "bytes": info["bytes"], "sha256": info["sha256"], "config": m.config.to_dict(),
                 "params": m.n_params(), "step": status.get("step"), "tokens_seen": status.get("tokens_seen"),
-                "val_loss_int8": vl, "val_ppl_int8": math.exp(vl) if vl == vl else None, "persona_ok": persona_ok,
+                "val_loss_int8": vl, "val_ppl_int8": math.exp(vl) if vl == vl else None, "persona_ok": persona_ok, "qa_score": qa_ok,
                 "data": json.loads((data / "data.json").read_text()) if (data / "data.json").exists() else {}}
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(manifest, ensure_ascii=False, indent=1))
@@ -376,6 +354,8 @@ def main(argv=None) -> None:
     p.add_argument("--out", required=True)
     p.add_argument("--max-chars", type=int, default=600_000_000)
     p.add_argument("--vocab", type=int, default=8192)
+    p.add_argument("--tokenizer", help="önceki eğitimin tokenizer.json'ı (devam ederken aynı tokenizer şart)")
+    p.add_argument("--no-open-data", action="store_true", help="açık lisanslı diyalog verisini indirme (test/çevrimdışı)")
     t = sub.add_parser("train")
     t.add_argument("--data", required=True)
     t.add_argument("--out", required=True)
@@ -383,7 +363,7 @@ def main(argv=None) -> None:
     t.add_argument("--budget-min", type=float, default=330)
     t.add_argument("--batch", type=int, default=16)
     t.add_argument("--lr", type=float, default=6e-4)
-    t.add_argument("--dialog-frac", type=float, default=0.05)
+    t.add_argument("--dialog-frac", type=float, default=0.2)
     t.add_argument("--threads", type=int, default=0)
     t.add_argument("--size", choices=list(SIZES), default="kucuk")
     t.add_argument("--resume-from", help="önceki checkpoint (Kaggle: önceki oturumun çıktısı)")
@@ -394,7 +374,8 @@ def main(argv=None) -> None:
     e.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     if a.cmd == "prepare":
-        print(json.dumps(prepare(Path(a.out), a.max_chars, a.vocab), ensure_ascii=False, indent=1))
+        print(json.dumps(prepare(Path(a.out), a.max_chars, a.vocab, tokenizer=Path(a.tokenizer) if a.tokenizer else None,
+                                 open_data=not a.no_open_data), ensure_ascii=False, indent=1))
     elif a.cmd == "train":
         train(Path(a.data), Path(a.out), a.steps, a.budget_min, a.batch, a.lr, a.dialog_frac, a.threads,
               config=SIZES[a.size], resume_from=Path(a.resume_from) if a.resume_from else None, grad_accum=a.grad_accum)
