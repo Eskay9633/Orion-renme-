@@ -35,6 +35,26 @@ def latest(prefix: str, token: str | None) -> dict | None:
     return max(rels, key=lambda r: r["created_at"]) if rels else None
 
 
+def recent(prefix: str, token: str | None, n: int = 8) -> list[dict]:
+    """En yeniden eskiye son n Release (taslaklar hariç)."""
+    rels = json.loads(_get(f"https://api.github.com/repos/{REPO}/releases?per_page=50", token))
+    rels = [r for r in rels if r["tag_name"].startswith(prefix) and not r.get("draft")]
+    return sorted(rels, key=lambda r: r["created_at"], reverse=True)[:n]
+
+
+def pick_chat(cands: list[tuple[str, dict]], floor: dict, cur: dict | None) -> tuple[int | None, list[dict]]:
+    """Sohbet adayları (en yeniden eskiye): tabanı geçen ilk aday seçilir. Birden çok eğitim hattı (Kaggle GPU,
+    GitHub CPU) yayın yaptığı için yalnızca en yeniye bakmak, iyi bir modelin sonradan gelen zayıf biri yüzünden
+    hiç alınmamasına yol açar."""
+    tried = []
+    for i, (tag, m) in enumerate(cands):
+        ok, why = chat_ok(m, floor, cur)
+        tried.append({"tag": tag, "alındı": ok, "neden": why, "ppl": m.get("val_ppl_int8")})
+        if ok:
+            return i, tried
+    return None, tried
+
+
 def download(rel: dict, names: tuple[str, ...], dest: Path, token: str | None) -> None:
     assets = {a["name"]: a["browser_download_url"] for a in rel["assets"]}
     for n in names:
@@ -89,22 +109,30 @@ def run(token: str | None, evaluate_gate) -> dict:
                 for n in KOMUT_FILES:
                     shutil.copy(t / n, core_dir / n)
                 report["changed"] = True
-    rel = latest("sohbet-", token)
-    if rel:
-        with tempfile.TemporaryDirectory() as td:
-            t = Path(td)
-            download(rel, CHAT_FILES, t, token)
-            m = json.loads((t / "manifest.json").read_text())
-            floor = json.loads((SHARED / "chat-model-floor.json").read_text())
-            cur = json.loads((chat_dir / "manifest.json").read_text()) if (chat_dir / "manifest.json").exists() else None
-            ok, why = chat_ok(m, floor, cur)
-            report["sohbet"] = {"tag": rel["tag_name"], "alındı": ok, "neden": why, "ppl": m.get("val_ppl_int8")}
-            if ok:
-                chat_dir.mkdir(exist_ok=True)
-                for n in CHAT_FILES:
-                    if (t / n).exists():
-                        shutil.copy(t / n, chat_dir / n)
-                report["changed"] = True
+    floor = json.loads((SHARED / "chat-model-floor.json").read_text())
+    cur = json.loads((chat_dir / "manifest.json").read_text()) if (chat_dir / "manifest.json").exists() else None
+    with tempfile.TemporaryDirectory() as td:
+        t = Path(td)
+        rels, cands = recent("sohbet-", token), []
+        for r in rels:
+            d = t / r["tag_name"]
+            d.mkdir()
+            download(r, ("manifest.json",), d, token)
+            if (d / "manifest.json").exists():
+                cands.append((r["tag_name"], json.loads((d / "manifest.json").read_text())))
+        i, tried = pick_chat(cands, floor, cur)
+        if tried:
+            report["sohbet"] = tried[i] if i is not None else tried[0]
+            report["sohbet_adaylar"] = tried
+        if i is not None:
+            rel = next(r for r in rels if r["tag_name"] == cands[i][0])
+            d = t / rel["tag_name"]
+            download(rel, CHAT_FILES, d, token)
+            chat_dir.mkdir(exist_ok=True)
+            for n in CHAT_FILES:
+                if (d / n).exists():
+                    shutil.copy(d / n, chat_dir / n)
+            report["changed"] = True
     return report
 
 

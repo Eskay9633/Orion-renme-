@@ -9,8 +9,8 @@ on:
       steps:
         description: 'Toplam hedef adım'
         default: '120000'
-  schedule:
-    - cron: '17 */6 * * *'
+  # Zamanlama kapalı: ana sohbet eğitimi Kaggle GPU'da (kaggle.yml). Bu CPU hattı eski veri önbelleğiyle
+  # (chat-data-v1, yeni diyaloglar yok) eğitiyordu; yalnızca elle başlatılır.
   push:
     branches: [main]
     paths:

@@ -29,3 +29,14 @@ def test_chat_exam_floor():
     assert not chat_ok({"val_ppl_int8": 14, "persona_ok": True, "qa_score": 0.3, "sha256": "x"}, floor, None)[0]
     assert not chat_ok({"val_ppl_int8": 14, "persona_ok": True, "sha256": "x"}, floor, None)[0]
     assert chat_ok({"val_ppl_int8": 14, "persona_ok": True, "qa_score": 0.8, "sha256": "x"}, floor, None)[0]
+
+
+def test_chat_picks_newest_passing_candidate():
+    """Sonradan gelen zayıf model (ör. CPU hattı, sınavsız) iyi Kaggle modelinin alınmasını engellemez."""
+    from orion_core.importer import pick_chat
+    floor = dict(FLOOR, qa_min=0.7)
+    weak = ("sohbet-0020000", {"val_ppl_int8": 30, "persona_ok": True, "sha256": "a"})
+    good = ("sohbet-kaggle-orta-0070000", {"val_ppl_int8": 12, "persona_ok": True, "qa_score": 0.8, "sha256": "b"})
+    i, tried = pick_chat([weak, good], floor, None)
+    assert i == 1 and not tried[0]["alındı"] and tried[1]["alındı"]
+    assert pick_chat([weak], floor, None)[0] is None
