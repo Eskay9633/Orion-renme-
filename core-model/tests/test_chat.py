@@ -64,3 +64,11 @@ def test_open_data_filter_and_score():
                                 "Rica ederim", "Biraz dinlen"]
     assert dialogs.qa_score(good) == 1.0
     assert dialogs.qa_score(["Sıkıldıysan yürüyüş yap"] * 10) < 0.2
+
+
+def test_clean_reply_strips_leaked_turn_prefixes():
+    from orion_core.chat import clean_reply
+    assert clean_reply("Orion: Merhaba! Bugün ne yapalım?") == "Merhaba! Bugün ne yapalım?"
+    assert clean_reply("Kullanıcı: Merhaba\nOrion: Merhaba! Bugün ne yapalım?") == "Merhaba! Bugün ne yapalım?"
+    assert clean_reply("Tamam.\nKullanıcı: başka\nOrion: x") == "Tamam."
+    assert clean_reply("Kullanıcı: yalnızca soru") == ""

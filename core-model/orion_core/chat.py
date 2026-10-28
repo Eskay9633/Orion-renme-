@@ -282,6 +282,19 @@ def prompt_for(question: str) -> str:
     return f"{USER}{question}\n{BOT}"
 
 
+def clean_reply(raw: str) -> str:
+    """Cevabı temizler (ChatBrain.cleanReply ile aynı): baştaki "Orion:" atılır; "Kullanıcı:" ile başlıyorsa
+    sonraki "Orion:" cevabı alınır; sonraki tura geçmeden kesilir."""
+    u, b = USER.strip(), BOT.strip()
+    s = raw.strip()
+    if s.startswith(u):
+        s = s.split(f"\n{b}", 1)[1] if f"\n{b}" in s else ""
+    s = s.strip()
+    if s.startswith(b):
+        s = s[len(b):]
+    return s.split(f"\n{u}")[0].split(f"\n{b}")[0].strip()
+
+
 @torch.no_grad()
 def generate(model: TinyGpt, bpe: BPE, text: str, max_new: int = 80, temperature: float = 0.0, top_k: int = 40,
              seed: int = 0) -> str:
@@ -302,9 +315,13 @@ def generate(model: TinyGpt, bpe: BPE, text: str, max_new: int = 80, temperature
         ids.append(nxt)
         out.append(nxt)
         s = bpe.decode(out)
-        if f"\n{USER.strip()}" in s:
-            return s.split(f"\n{USER.strip()}")[0].strip()
-    return bpe.decode(out).strip()
+        t = s.strip()
+        # Model yeni bir tur uydurduysa ("Kullanıcı: ...\nOrion: ...") cevabın ardındaki ilk turda dur
+        body = t.split(f"\n{BOT.strip()}", 1)[1] if t.startswith(USER.strip()) and f"\n{BOT.strip()}" in t else t
+        if not t.startswith(USER.strip()) or body is not t:
+            if f"\n{USER.strip()}" in body:
+                return clean_reply(s)
+    return clean_reply(bpe.decode(out))
 
 
 def export_chat(run: Path, data: Path, out: Path) -> dict:

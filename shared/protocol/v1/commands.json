@@ -344,7 +344,7 @@
     },
     "ask": {
       "agent": "mike",
-      "doc": "Genel soru-cevap ve sohbet. Önce Orion'un kendi beyni (telefondaki model), gerekirse yardımcılar.",
+      "doc": "Genel soru-cevap ve sohbet. Önce Orion'un kendi beyni (telefondaki model), gerekirse yardımcılar. provider: kullanıcı belirli bir yardımcıyı istediyse (\"bunu Grok'a sor\") sağlayıcı kimliği (providers.json id); o yardımcı önce denenir, kullanılamıyorsa diğerlerine geçilir.",
       "needs_net": false,
       "args": {
         "question": {
@@ -352,6 +352,11 @@
           "required": true,
           "minLen": 2,
           "maxLen": 1000
+        },
+        "provider": {
+          "type": "string",
+          "minLen": 2,
+          "maxLen": 40
         }
       }
     },

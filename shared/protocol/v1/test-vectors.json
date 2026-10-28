@@ -247,6 +247,18 @@
    "ok": true
   },
   {
+   "name": "belirli yardımcıya soru",
+   "input": "{\"v\":1,\"id\":\"q2\",\"cmd\":\"ask\",\"args\":{\"question\":\"Orion gelişimi nasıl daha iyi olabilir\",\"provider\":\"grok\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"provider\":\"grok\",\"question\":\"Orion gelişimi nasıl daha iyi olabilir\"},\"cmd\":\"ask\",\"ctx\":{},\"id\":\"q2\",\"v\":1}"
+  },
+  {
+   "name": "yardımcı kimliği metin olmalı",
+   "input": "{\"v\":1,\"id\":\"q3\",\"cmd\":\"ask\",\"args\":{\"question\":\"kara delik nedir\",\"provider\":7}}",
+   "ok": false,
+   "err_code": "E_ARG_TYPE"
+  },
+  {
    "name": "kripto genel durum varsayılan TL",
    "input": "{\"v\":1,\"id\":\"k1\",\"cmd\":\"market.crypto\",\"args\":{}}",
    "ok": true,

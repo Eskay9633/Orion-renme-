@@ -426,6 +426,26 @@ LANGS = [("İngilizce", "en"), ("Almanca", "de"), ("Fransızca", "fr"), ("İspan
          ("İtalyanca", "it"), ("Türkçe", "tr")]
 
 
+# Belirli yardımcıya soru ("bunu Grok'a sor"): (yönelme hâlindeki ad, providers.json kimliği). Yaygın yazım hataları dahil.
+HELPER_DATIVES = [
+    ("Grok'a", "grok"), ("grok'a", "grok"), ("Groq'a", "groq"), ("Gemini'ye", "gemini"), ("ChatGPT'ye", "openai"),
+    ("Claude'a", "claude"), ("DeepSeek'e", "deepseek"), ("Mistral'e", "mistral"), ("Perplexity'ye", "perplexity"),
+    ("Kimi'ye", "kimi"), ("OpenRouter'a", "openrouter"), ("grock", "grok"), ("Cerebras'a", "cerebras"),
+    ("GPT'ye", "openai"), ("gemini'ye", "gemini"), ("cemini'ye", "gemini"),
+]
+HELPER_VERBS = ["sor", "danış", "sorar mısın", "bir sor"]
+HELPER_FRAMES = ["{Q} {H} {V}", "{Q}, bunu {H} {V}", "{H} {V}: {Q}", "{Q} bunu {H} {V}", "şunu {H} {V}: {Q}"]
+
+
+def helper_ask(rng, sp, q: str, hf: bool = False, hv: bool = False) -> tuple[str, dict]:
+    h, pid = G.choose(rng, HELPER_DATIVES, sp, hf or hv)
+    v = rng.choice(HELPER_VERBS)
+    frame = G.choose(rng, HELPER_FRAMES, sp, hf)
+    if ":" not in frame and v == "sorar mısın" and rng.random() < 0.5:
+        v = "sor"
+    return _fill(frame, Q=q, H=h, V=v), {"question": q, "provider": pid}
+
+
 def ask_templates() -> list[Gen]:
     def q(rng, sp): return pick(rng, QUESTIONS_GENERAL, sp, lambda r: random_phrase(r, 2, 6))
     def a(rng, sp): x = q(rng, sp); return f"{x}?", {"question": x}
@@ -434,7 +454,8 @@ def ask_templates() -> list[Gen]:
     def d(rng, sp): x = q(rng, sp); return f"merak ediyorum, {x}", {"question": x}
     def e(rng, sp): x = q(rng, sp); return f"Orion'a sor: {x}", {"question": x}
     def f(rng, sp): x = q(rng, sp); return f"açıkla: {x}", {"question": x}
-    return [a, b, c, d, e, f]
+    def g(rng, sp): return helper_ask(rng, sp, q(rng, sp))
+    return [a, b, c, d, e, f, g]
 
 
 def calc_templates() -> list[Gen]:
@@ -949,6 +970,8 @@ def g_ask(rng, sp, hf, hv):
                    "elektrikli araba", "uyku düzeni", "Python dili", "kuantum bilgisayar", "Mars", "enflasyon",
                    "ekmek mayası", "güneş paneli", "deprem", "bağışıklık sistemi"], sp, lambda r: random_phrase(r, 1, 4))
     q = _fill(_frame(rng, sp, ASK_FRAMES, hf or hv), X=x)
+    if rng.random() < 0.2:
+        return helper_ask(rng, sp, q, hf, hv)
     pre = rng.choice(ASK_PRE)
     return pre + q + ("?" if not pre and rng.random() < 0.5 else ""), {"question": q}
 
