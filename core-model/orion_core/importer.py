@@ -2,7 +2,8 @@
 
 İşlem deposunun CI'ında çalışır:
   - komut-*  Release → shared/core-model/  (güvenlik tabanını geçmeli ve elle yazılmış cümlelerde gerilememeli)
-  - sohbet-* Release → shared/chat-model/  (shared/chat-model-floor.json tabanını geçmeli)
+  - sohbet-* Release → shared/chat-model/  (shared/chat-model-floor.json tabanını geçmeli; sınav ve kişilik puanı
+    manifestten değil, aday indirilip burada chat.evaluate_release ile yeniden ölçülür. "hold": true iken alınmaz)
 Değişiklik olursa çıktı: changed=true (iş akışı sürümü artırıp APK'yı derletir).
 """
 from __future__ import annotations
@@ -42,14 +43,38 @@ def recent(prefix: str, token: str | None, n: int = 8) -> list[dict]:
     return sorted(rels, key=lambda r: r["created_at"], reverse=True)[:n]
 
 
-def pick_chat(cands: list[tuple[str, dict]], floor: dict, cur: dict | None) -> tuple[int | None, list[dict]]:
+def pick_chat(cands: list[tuple[str, dict]], floor: dict, cur: dict | None,
+              local_eval=None, max_eval: int = 3) -> tuple[int | None, list[dict]]:
     """Sohbet adayları (en yeniden eskiye): tabanı geçen ilk aday seçilir. Birden çok eğitim hattı (Kaggle GPU,
     GitHub CPU) yayın yaptığı için yalnızca en yeniye bakmak, iyi bir modelin sonradan gelen zayıf biri yüzünden
-    hiç alınmamasına yol açar."""
+    hiç alınmamasına yol açar.
+
+    local_eval(tag) → {"qa_score", "persona_ok", ...}: verilirse ucuz denetimi (şaşkınlık, aynı model) geçen aday
+    indirilip BU depoda sabit istem + güncel sınavla yeniden değerlendirilir; karar yerel puanlarla verilir
+    (manifest puanları yalnızca karşılaştırma için raporda kalır). En çok max_eval aday indirilir."""
     tried = []
+    evals = 0
     for i, (tag, m) in enumerate(cands):
-        ok, why = chat_ok(m, floor, cur)
-        tried.append({"tag": tag, "alındı": ok, "neden": why, "ppl": m.get("val_ppl_int8")})
+        row = {"tag": tag, "ppl": m.get("val_ppl_int8"), "manifest_qa": m.get("qa_score"),
+               "manifest_kisilik": m.get("persona_ok")}
+        ok, why = chat_cheap(m, floor, cur)
+        if ok and local_eval is not None:
+            if evals >= max_eval:
+                ok, why = False, f"değerlendirme sınırı ({max_eval} indirme) doldu"
+            else:
+                evals += 1
+                try:
+                    loc = local_eval(tag)
+                except Exception as e:  # noqa: BLE001 — yerel değerlendirme yapılamazsa manifeste güvenilmez
+                    loc = None
+                    ok, why = False, f"yerel değerlendirme yapılamadı: {e}"
+                if loc is not None:
+                    row["yerel_qa"], row["yerel_kisilik"] = loc.get("qa_score"), loc.get("persona_ok")
+                    ok, why = chat_ok({**m, "qa_score": loc.get("qa_score"), "persona_ok": loc.get("persona_ok")}, floor, cur)
+        elif ok:
+            ok, why = chat_ok(m, floor, cur)
+        row.update({"alındı": ok, "neden": why})
+        tried.append(row)
         if ok:
             return i, tried
     return None, tried
@@ -76,19 +101,33 @@ def komut_better(new: dict, cur: dict | None) -> tuple[bool, str]:
     return True, "daha iyi ya da eşit"
 
 
-def chat_ok(m: dict, floor: dict, cur: dict | None) -> tuple[bool, str]:
+def chat_cheap(m: dict, floor: dict, cur: dict | None) -> tuple[bool, str]:
+    """İndirmeden yapılan ucuz denetim (manifest): şaşkınlık tabanı, aynı model, mevcuttan kötü."""
     ppl = m.get("val_ppl_int8")
     if ppl is None or ppl != ppl or ppl > floor["val_ppl_max"]:
         return False, f"şaşkınlık {ppl} > {floor['val_ppl_max']} (henüz yeterince öğrenmedi)"
-    if floor.get("persona_ok") and not m.get("persona_ok"):
-        return False, "kişilik testi geçmedi (kendini Orion olarak tanıtmıyor)"
-    if "qa_min" in floor and (m.get("qa_score") or 0) < floor["qa_min"]:
-        return False, f"sınav sorularında doğru cevap {m.get('qa_score')} < {floor['qa_min']} (soruya göre cevap vermiyor)"
     if cur and cur.get("sha256") == m.get("sha256"):
         return False, "aynı model"
     if cur and (cur.get("val_ppl_int8") or 1e9) < ppl:
         return False, "mevcut sohbet modelinden kötü"
+    return True, "şaşkınlık tabanı geçti"
+
+
+def chat_ok(m: dict, floor: dict, cur: dict | None) -> tuple[bool, str]:
+    ok, why = chat_cheap(m, floor, cur)
+    if not ok:
+        return ok, why
+    if floor.get("persona_ok") and not m.get("persona_ok"):
+        return False, "kişilik testi geçmedi (kendini Orion olarak tanıtmıyor)"
+    if "qa_min" in floor and (m.get("qa_score") or 0) < floor["qa_min"]:
+        return False, f"sınav sorularında doğru cevap {m.get('qa_score')} < {floor['qa_min']} (soruya göre cevap vermiyor)"
     return True, "tabanı geçti"
+
+
+def _local_eval(d: Path) -> dict:
+    """Sohbet beynini bu depoda değerlendirir (sabit istem + güncel sınav). torch gerektirir; tembel içe aktarma."""
+    from .chat import evaluate_release
+    return evaluate_release(d)
 
 
 def run(token: str | None, evaluate_gate) -> dict:
@@ -120,14 +159,25 @@ def run(token: str | None, evaluate_gate) -> dict:
             download(r, ("manifest.json",), d, token)
             if (d / "manifest.json").exists():
                 cands.append((r["tag_name"], json.loads((d / "manifest.json").read_text())))
-        i, tried = pick_chat(cands, floor, cur)
+
+        def evaluate(tag: str) -> dict:
+            rel = next(r for r in rels if r["tag_name"] == tag)
+            d = t / tag
+            download(rel, ("model.bin", "tokenizer.json"), d, token)
+            return _local_eval(d)
+
+        i, tried = pick_chat(cands, floor, cur, local_eval=evaluate)
         if tried:
-            report["sohbet"] = tried[i] if i is not None else tried[0]
             report["sohbet_adaylar"] = tried
-        if i is not None:
+            report["sohbet"] = dict(tried[i] if i is not None else tried[0])
+        if i is not None and floor.get("hold"):
+            # Beklemede: değerlendirildi ve raporlandı ama uygulamaya alınmaz (yeni APK yok); kullanıcı onayıyla açılır.
+            report["sohbet"].update({"alındı": False, "neden": "beklemede (kullanıcı onayı)", "tabanı_geçti": True,
+                                    "beklemede": True})
+        elif i is not None:
             rel = next(r for r in rels if r["tag_name"] == cands[i][0])
             d = t / rel["tag_name"]
-            download(rel, CHAT_FILES, d, token)
+            download(rel, tuple(n for n in CHAT_FILES if not (d / n).exists()), d, token)
             chat_dir.mkdir(exist_ok=True)
             for n in CHAT_FILES:
                 if (d / n).exists():

@@ -9,12 +9,9 @@ on:
       steps:
         description: 'Toplam hedef adım'
         default: '120000'
-  # Zamanlama kapalı: ana sohbet eğitimi Kaggle GPU'da (kaggle.yml). Bu CPU hattı eski veri önbelleğiyle
-  # (chat-data-v1, yeni diyaloglar yok) eğitiyordu; yalnızca elle başlatılır.
-  push:
-    branches: [main]
-    paths:
-      - 'core-model/orion_core/chat.py'
+  # Zamanlama ve push tetikleyicisi kapalı: ana sohbet eğitimi Kaggle GPU'da (kaggle.yml). Bu CPU hattı eski veri
+  # önbelleğiyle (chat-data-v1, yeni diyaloglar yok) eğitiyordu ve chat.py her değiştiğinde kendiliğinden başlıyordu;
+  # artık yalnızca elle (workflow_dispatch) başlatılır.
 
 permissions:
   contents: write

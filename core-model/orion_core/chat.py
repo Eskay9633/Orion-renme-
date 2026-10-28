@@ -7,6 +7,9 @@ Adımlar (hepsi CI'da, gelişim deposunda):
   export   → ORN1 (int8) + parity + örnek cevaplar + manifest (doğrulama kaybı, kişilik testi)
 
 Biçim: <bos>Kullanıcı: ...\\nOrion: ...<eos>  (düz metin belgeleri <bos>metin<eos>)
+Çıkarım istemi "Kullanıcı: ...\\nOrion:" ile biter (sonda BOŞLUK YOK): eğitimde cevap boşluklu bir belirteçle
+(" Merhaba") başlar; istem "Orion: " ile biterse BPE tek başına bir " " belirteci üretir, model bunu cevaptan önce
+hiç görmediği için sözcüğün ortasından başlar (70000 adımlık modelde sınav 0.3 → 0.7).
 Telefonda: orion-core/.../model/ChatBrain.kt aynı biçimi kurar.
 """
 from __future__ import annotations
@@ -29,7 +32,8 @@ from .model import GptConfig, TinyGpt
 HF_API = "https://huggingface.co/api/datasets/wikimedia/wikipedia/tree/main/20231101.tr"
 HF_FILE = "https://huggingface.co/datasets/wikimedia/wikipedia/resolve/main/"
 CUT_SECTIONS = ("\nKaynakça", "\nKaynaklar", "\nDış bağlantılar", "\nAyrıca bakınız", "\nNotlar")
-USER, BOT = "Kullanıcı: ", "Orion: "
+USER, BOT = "Kullanıcı: ", "Orion: "  # BOT: EĞİTİM biçimi (dialogs.format_dialog); değişmez
+PROMPT_BOT = BOT.rstrip()              # çıkarım istemi sonu: "Orion:" (sonda boşluk yok)
 
 CHAT_CONFIG = dict(ctx=256, d_model=384, n_layer=8, n_head=6, d_ff=1536)
 # Boyutlar: küçük GitHub işlemcisinde (~17M), orta/büyük ekran kartında (Kaggle) eğitilir.
@@ -79,7 +83,7 @@ def wikipedia_texts(cache: Path, max_chars: int):
 
 
 # Kişilik/yetenek diyalogları ve açık lisanslı Türkçe diyaloglar: dialogs.py
-from .dialogs import QA_TESTS, open_dialogues, persona_dialogues, qa_score  # noqa: E402
+from .dialogs import QA_TESTS, open_dialogues, persona_dialogues, qa_judge, qa_score  # noqa: E402
 
 
 def encode_to(path: Path, bpe: BPE, texts) -> int:
@@ -279,7 +283,8 @@ PERSONA_TESTS = [("Sen kimsin?", "Orion"), ("Merhaba", None), ("Çok sıkıldım
 
 
 def prompt_for(question: str) -> str:
-    return f"{USER}{question}\n{BOT}"
+    """Çıkarım istemi; "Orion:" ile biter (sonda boşluk YOK, bkz. modül açıklaması)."""
+    return f"{USER}{question}\n{PROMPT_BOT}"
 
 
 def clean_reply(raw: str) -> str:
@@ -324,6 +329,26 @@ def generate(model: TinyGpt, bpe: BPE, text: str, max_new: int = 80, temperature
     return clean_reply(bpe.decode(out))
 
 
+def run_exam(model: TinyGpt, bpe: BPE, max_new: int = 50) -> dict:
+    """Sınav (QA_TESTS) + kişilik testi; açgözlü (greedy) çözme, export_chat ile aynı ayarlar.
+    Dönen: {"qa_score", "persona_ok", "persona_text", "answers": [{soru, tur, cevap, dogru, neden}]}"""
+    texts = [generate(model, bpe, prompt_for(q), max_new=max_new) for q, *_ in QA_TESTS]
+    answers = [dict(r, cevap=a) for r, a in zip(qa_judge(texts), texts)]
+    persona_text = generate(model, bpe, prompt_for(PERSONA_TESTS[0][0]), max_new=40)
+    return {"qa_score": qa_score(texts), "persona_ok": PERSONA_TESTS[0][1] in persona_text,
+            "persona_text": persona_text, "answers": answers}
+
+
+def evaluate_release(dir: Path) -> dict:
+    """İndirilmiş bir sohbet modelini (dir/model.bin + dir/tokenizer.json) yerel olarak sınar; dosya yazmaz.
+    Dönen: {"qa_score": float, "persona_ok": bool, "persona_text": str, "answers": [...]} (bkz. run_exam)."""
+    from .export import load_quantized
+    dir = Path(dir)
+    model = load_quantized(dir / "model.bin")
+    bpe = BPE.load(dir / "tokenizer.json")
+    return run_exam(model, bpe)
+
+
 def export_chat(run: Path, data: Path, out: Path) -> dict:
     from .export import export, load_quantized
     out.mkdir(parents=True, exist_ok=True)
@@ -351,9 +376,10 @@ def export_chat(run: Path, data: Path, out: Path) -> dict:
     status = json.loads((run / "status.json").read_text()) if (run / "status.json").exists() else {}
     vl = val_loss(m, data, m.config.ctx) if (data / "val.bin").exists() else float("nan")
     persona_ok = "Orion" in cases[0]["greedy_text"]
-    qa = [{"soru": q, "cevap": generate(m, bpe, prompt_for(q), max_new=50)} for q, _ in QA_TESTS]
+    ex = run_exam(m, bpe)
+    qa = ex["answers"]
     (out / "samples.json").write_text(json.dumps(samples + [{"sinav": x} for x in qa], ensure_ascii=False, indent=1), encoding="utf-8")
-    qa_ok = qa_score([x["cevap"] for x in qa])
+    qa_ok = ex["qa_score"]
     manifest = {"kind": "chat", "bytes": info["bytes"], "sha256": info["sha256"], "config": m.config.to_dict(),
                 "params": m.n_params(), "step": status.get("step"), "tokens_seen": status.get("tokens_seen"),
                 "val_loss_int8": vl, "val_ppl_int8": math.exp(vl) if vl == vl else None, "persona_ok": persona_ok, "qa_score": qa_ok,
