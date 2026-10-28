@@ -294,10 +294,10 @@
   },
   {
    "id": "pollinations",
-   "name": "Pollinations (anahtarsız)",
+   "name": "Pollinations",
    "kind": "closed",
    "api": "openai",
-   "base_url": "https://text.pollinations.ai/v1",
+   "base_url": "https://gen.pollinations.ai/v1",
    "model": "openai",
    "key_url": "https://enter.pollinations.ai",
    "limits": {
@@ -311,10 +311,10 @@
    "secret_data_allowed": false,
    "enabled_default": true,
    "verified": false,
-   "no_key": true,
+   "no_key": false,
    "vision": true,
    "image_api": "pollinations",
-   "notes": "Kayıt ve anahtar gerektirmeden metin ve resim üretir; böylece Orion kurulumsuz çalışır. Anonim kullanımda IP başına sınır var (metin ~30 sn, resim ~45 sn arayla; aşılınca 402). İstemler herkese açık akışta görünebilir: gizli veri gönderilmez. Resim girdisi (vision) desteği doğrulanmadı.",
+   "notes": "2026 itibarıyla eski anahtarsız adres (text.pollinations.ai) yerine gen.pollinations.ai kullanılıyor ve üretim için anahtar (enter.pollinations.ai, ücretsiz kayıt) gerekiyor; anonim erişim yalnızca önbellekli cevaplarla sınırlı. Metin ve resim üretir. İstemler herkese açık akışta görünebilir: gizli veri gönderilmez. Model adı ve resim girdisi (vision) desteği doğrulanmadı.",
    "license_note": "Arkadaki model sağlayıcıya göre değişir; varsayılan training_allowed=false."
   },
   {
