@@ -1,0 +1,8 @@
+# Yalnız çeviri iş akışı (cevir.yml) için; ana eğitim bunlara ihtiyaç duymaz.
+# torch ayrıca işlemci dizininden kurulur (ct2-transformers-converter Marian ağırlıklarını torch ile okur).
+# Sürüm sınırları uyumluluk için konuldu; bu sürümlerle çalıştığı burada doğrulanmadı.
+pyarrow
+ctranslate2>=4.4,<5
+transformers>=4.40,<5
+sentencepiece
+sacremoses

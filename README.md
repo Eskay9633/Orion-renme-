@@ -22,6 +22,12 @@ küçük GPT'si, kendi veri üreticisi (`grammar.py`). Hazır model ağırlığ�
 - Sohbet beyni: Türkçe Vikipedi (`wikimedia/wikipedia`, 20231101.tr — CC BY-SA 3.0 / GFDL; atıf:
   Vikipedi katkıcıları) + Orion'un kendi yazdığı kişilik diyalogları. Vikipedi metninin "aynı lisansla
   paylaş" şartının eğitilmiş modele geçip geçmediği hukuken net değildir — **doğrulanmadı**.
+- Çeviri verisi (`cevir.yml`, Release `ceviri-*`): OpenAssistant/oasst2 (Apache-2.0), databricks-dolly-15k
+  (CC BY-SA 3.0; çevirisi de CC BY-SA 3.0), Anthropic/hh-rlhf helpful-base "chosen" (MIT), nvidia/HelpSteer2
+  (CC BY 4.0) İngilizceden Helsinki-NLP/opus-mt-tc-big-en-tr ile makine çevirisi. Lisanslar çalışma anında
+  Hugging Face API'sinden okunur, uymazsa iş durur; satır başına kaynak/lisans/atıf kaydı tutulur. OpenAI üretimi
+  veri yok. Başlatma: `ceviri/hedef.txt` dosyasına `100000 3` yazıp işle ya da Actions → ceviri. Kaggle en yeni
+  `ceviri-*` Release'ini kendiliğinden kullanır (ince ayar: diyalog payı 0.75, lr 1.5e-4).
 - Kullanıcının telefon verisi bu depoya **asla** gelmez; o veri yalnızca gizli işlem deposunda kalır.
 - Bu depoda parola/anahtar yoktur.
 

@@ -1,0 +1,163 @@
+name: ceviri
+
+# İngilizce açık lisanslı diyalogları (oasst2, dolly-15k, hh-rlhf helpful-base, HelpSteer2) Türkçeye çevirir ve
+# sohbet beyni için ek veri olarak Release'e koyar (etiket ceviri-YYYYMMDD-HHMM, ön sürüm). Veri depoya İŞLENMEZ.
+# Kaggle (kaggle.yml) en yeni ceviri-* Release'indeki ceviri.jsonl.gz'yi kendiliğinden kullanır.
+# Başlatma: Actions → ceviri → Run workflow (pairs, shards) YA DA ceviri/hedef.txt dosyasına "ÇİFT PARÇA"
+# (ör. "100000 3") yazıp main'e işlemek. Lisans kapısı: her veri setinin ve çevirmen modelin lisansı Hugging Face
+# API'sinden okunur; izin listesinde ya da beklenenle aynı değilse iş durur.
+# Kaggle dosyalarına/oturumlarına dokunmaz (ayrı eşzamanlılık grubu).
+on:
+  workflow_dispatch:
+    inputs:
+      pairs:
+        description: 'En çok diyalog (çift) sayısı'
+        default: '100000'
+      shards:
+        description: 'Paralel çeviri işi sayısı (her biri en çok ~5,5 saat)'
+        default: '3'
+  push:
+    branches: [main]
+    paths: ['ceviri/hedef.txt']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ceviri
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      matrix: ${{ steps.cfg.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ayar
+        id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then P="${{ inputs.pairs }}"; S="${{ inputs.shards }}"
+          else read P S < ceviri/hedef.txt; fi
+          P=${P:-100000}; S=${S:-3}
+          case "$P$S" in *[!0-9]*) echo "HATA: hedef.txt biçimi 'ÇİFT PARÇA' olmalı (ör. 100000 3)"; exit 1;; esac
+          if [ "$S" -lt 1 ] || [ "$S" -gt 20 ]; then echo "HATA: parça sayısı 1-20 olmalı"; exit 1; fi
+          echo "pairs=$P" >> "$GITHUB_OUTPUT"; echo "shards=$S" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(python -c "import json;print(json.dumps(list(range($S))))")" >> "$GITHUB_OUTPUT"
+      - name: Bağımlılıklar
+        run: pip install pyarrow
+      - name: Topla + lisans kapısı + parçala
+        working-directory: core-model
+        run: python -m orion_core.translate_data collect --out ../work/ceviri --pairs ${{ steps.cfg.outputs.pairs }} --shards ${{ steps.cfg.outputs.shards }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ceviri-parcalar
+          path: |
+            work/ceviri/shard-*.jsonl
+            work/ceviri/licenses.json
+            work/ceviri/collect.json
+          retention-days: 7
+
+  translate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bağımlılıklar
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -r core-model/requirements-ceviri.txt
+      - name: Çeviri modelleri önbellekten
+        id: mcache
+        uses: actions/cache/restore@v4
+        with:
+          path: work/ct2
+          key: ct2-opus-tc-big-en-tr-tr-en-v1
+      - name: Modelleri CTranslate2'ye dönüştür (int8)
+        if: steps.mcache.outputs.cache-hit != 'true'
+        run: |
+          ct2-transformers-converter --model Helsinki-NLP/opus-mt-tc-big-en-tr --output_dir work/ct2/en-tr --quantization int8
+          ct2-transformers-converter --model Helsinki-NLP/opus-mt-tc-big-tr-en --output_dir work/ct2/tr-en --quantization int8
+      - name: Modelleri önbelleğe kaydet
+        if: steps.mcache.outputs.cache-hit != 'true' && matrix.shard == 0
+        uses: actions/cache/save@v4
+        with:
+          path: work/ct2
+          key: ct2-opus-tc-big-en-tr-tr-en-v1
+      - uses: actions/download-artifact@v4
+        with:
+          name: ceviri-parcalar
+          path: work/ceviri
+      - name: Çevir (süre bütçeli; dolarsa yarım parça da kaydedilir)
+        working-directory: core-model
+        run: |
+          S=$(printf '%02d' ${{ matrix.shard }})
+          python -m orion_core.translate_data translate --shard ../work/ceviri/shard-$S.jsonl --out ../work/out/tr-$S.jsonl \
+            --ct2 ../work/ct2/en-tr --ct2-back ../work/ct2/tr-en --licenses ../work/ceviri/licenses.json \
+            --budget-min 315 --threads 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ceviri-cikti-${{ matrix.shard }}
+          path: work/out/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  merge:
+    needs: [prepare, translate]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ceviri-cikti-*
+          path: work/out
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: ceviri-parcalar
+          path: work/ceviri
+      - name: Birleştir
+        working-directory: core-model
+        run: |
+          ls ../work/out/tr-*.jsonl >/dev/null 2>&1 || { echo "HATA: hiçbir parça çevrilemedi"; exit 1; }
+          python -m orion_core.translate_data merge --out ../work/rel --collect ../work/ceviri/collect.json ../work/out/tr-*.jsonl
+      - name: Release (ön sürüm)
+        run: |
+          TAG="ceviri-$(date -u +%Y%m%d-%H%M)"
+          NOTES=$(python - <<'PY'
+          import json
+          s = json.load(open("work/rel/stats.json"))
+          print(f"Makine çevirisi (en→tr) diyalog verisi · {s['kalan']} diyalog ({s['cok_turlu']} çok turlu) · "
+                f"~{s['tahmini_belirtec']:,} belirteç (tahmin) · kaynaklar: {s['kaynak']}")
+          print(f"chrF gidiş-dönüş: örnek {s['chrf']['ornek']}, alt %20 eşiği {s['chrf']['esik_p20']}, ortalama {s['chrf']['ortalama']}")
+          print(f"Atılan: {s['atilan']}")
+          if s["yarim_parca"]:
+              print(f"Süre bütçesi dolan (yarım) parçalar: {s['yarim_parca']}")
+          print("Lisans/atıf: LISANS-ATIF.md. databricks-dolly-15k kaynaklı satırlar CC BY-SA 3.0'dır (türev eser).")
+          PY
+          )
+          gh release create "$TAG" work/rel/ceviri.jsonl.gz work/rel/stats.json work/rel/LISANS-ATIF.md \
+            --target "$GITHUB_SHA" --title "Çeviri verisi $TAG" --notes "$NOTES" --prerelease
+          echo "yayınlandı: $TAG"

@@ -84,6 +84,53 @@ def wikipedia_texts(cache: Path, max_chars: int):
 
 # Kişilik/yetenek diyalogları ve açık lisanslı Türkçe diyaloglar: dialogs.py
 from .dialogs import QA_TESTS, open_dialogues, persona_dialogues, qa_judge, qa_score  # noqa: E402
+from . import dialogs as _dialogs  # noqa: E402
+
+EXTRA_LICENSES = {"apache-2.0", "mit", "cc-by-4.0", "cc-by-sa-3.0", "cc-by-sa-4.0"}
+
+
+def extra_dialogues(src: str, cache: Path) -> tuple[list[str], dict]:
+    """Ek diyalog dosyası (yol ya da URL; .jsonl ya da .jsonl.gz; translate_data çıktısı biçimi).
+    Yalnız training_allowed=true VE izinli lisanslı satırlar alınır; her tur dialogs.clean_pair'den geçer
+    (sınav soruları, başka model kimliği, Türkçe olmayan cevap atılır). Çok turlu satırlar ("turns") turlar
+    alt alta eğitim biçimiyle birleştirilir; ilk tur geçemezse satır düşer, sonraki tur geçemezse orada kesilir."""
+    import gzip
+    from collections import Counter
+    path = Path(src)
+    if src.startswith(("http://", "https://")):
+        cache.mkdir(parents=True, exist_ok=True)
+        path = cache / ("extra-dialogs.jsonl.gz" if src.split("?")[0].endswith(".gz") else "extra-dialogs.jsonl")
+        if not path.exists():
+            print(f"ek diyalog indiriliyor: {src}", flush=True)
+            urllib.request.urlretrieve(src, path)
+    op = gzip.open if str(path).endswith(".gz") else open
+    texts: list[str] = []
+    drop: Counter = Counter()
+    by_src: Counter = Counter()
+    with op(path, "rt", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            if r.get("training_allowed") is not True:
+                drop["egitim_izni_yok"] += 1
+                continue
+            if str(r.get("license", "")).lower() not in EXTRA_LICENSES:
+                drop["lisans"] += 1
+                continue
+            turns = r.get("turns") or [[r.get("q", ""), r.get("a", "")]]
+            parts = []
+            for q, a in turns:
+                c = _dialogs.clean_pair(q, a)
+                if c is None:
+                    break
+                parts.append(_dialogs.format_dialog(*c))
+            if not parts:
+                drop["suzgec_ya_da_sinav"] += 1
+                continue
+            texts.append("\n".join(parts))
+            by_src[r.get("source", "?")] += 1
+    return texts, {"ceviri_cift": len(texts), "kaynaklar": dict(by_src), "atilan": dict(drop), "dosya": src}
 
 
 def encode_to(path: Path, bpe: BPE, texts) -> int:
@@ -105,8 +152,9 @@ def encode_to(path: Path, bpe: BPE, texts) -> int:
 
 
 def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_000_000, texts=None,
-            tokenizer: Path | None = None, open_data: bool = True) -> dict:
-    """tokenizer: önceki eğitimin tokenizer'ı (Kaggle'da kaldığı yerden devam ederken AYNI olmalı)."""
+            tokenizer: Path | None = None, open_data: bool = True, extra_dialogs: str | None = None) -> dict:
+    """tokenizer: önceki eğitimin tokenizer'ı (Kaggle'da kaldığı yerden devam ederken AYNI olmalı).
+    extra_dialogs: ek (ör. çeviri) diyalog jsonl yolu/URL'si; bkz. extra_dialogues. Yoksa davranış değişmez."""
     out.mkdir(parents=True, exist_ok=True)
     raw = out / "raw.txt"
     if not raw.exists():
@@ -118,6 +166,7 @@ def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_00
     docs = [d for d in docs if d.strip()]
     dialogs = persona_dialogues(60000)
     open_texts, open_stats = open_dialogues(out / "hf-dialog") if open_data else ([], {})
+    extra_texts, extra_stats = extra_dialogues(extra_dialogs, out / "extra") if extra_dialogs else ([], None)
     if tokenizer is not None and Path(tokenizer).exists() and not (out / "tokenizer.json").exists():
         import shutil
         shutil.copy(tokenizer, out / "tokenizer.json")
@@ -139,12 +188,17 @@ def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_00
         "docs": len(docs), "chars": sum(map(len, docs)),
         "train_tokens": encode_to(out / "train.bin", bpe, docs[n_val:]),
         "val_tokens": encode_to(out / "val.bin", bpe, docs[:n_val]),
-        "dialog_tokens": encode_to(out / "dialog.bin", bpe, dialogs + open_texts + open_texts),
+        "dialog_tokens": encode_to(out / "dialog.bin", bpe, dialogs + open_texts + open_texts + extra_texts),
         "persona_dialogs": len(dialogs), "open_dialogs": open_stats,
         "vocab": bpe.vocab_size,
         "source": "Türkçe Vikipedi (wikimedia/wikipedia 20231101.tr, CC BY-SA 3.0/GFDL) + Orion kişilik/yetenek diyalogları + "
                   "CohereForAI/aya_dataset (Apache-2.0) + OpenAssistant/oasst2 (Apache-2.0) Türkçe diyalogları",
     }
+    if extra_stats is not None:
+        stats["ceviri_cift"] = extra_stats["ceviri_cift"]
+        stats["ceviri"] = extra_stats
+        stats["source"] += (" + İngilizce açık lisanslı diyalogların makine çevirisi (" +
+                            ", ".join(sorted(extra_stats["kaynaklar"])) + "; ayrıntı: ceviri)")
     (out / "data.json").write_text(json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
     return stats
 
@@ -195,7 +249,11 @@ def lr_at(step: int, total: int, base: float, warmup: int = 500) -> float:
 
 
 def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: float, dialog_frac: float,
-          threads: int = 0, config: dict | None = None, resume_from: Path | None = None, grad_accum: int = 1) -> dict:
+          threads: int = 0, config: dict | None = None, resume_from: Path | None = None, grad_accum: int = 1,
+          save_every: int = 500, exam_every: int = 0) -> dict:
+    """save_every: ckpt.pt + status.json yazma aralığı (erken durdurma için ara durum).
+    exam_every > 0: o aralıkla sınav (run_exam, 40 soru, açgözlü çözme) yapılır; exam.jsonl'e yazılır ve en iyi
+    qa_score'lu ağırlıklar best.pt'ye (ckpt.pt biçiminde, export'a verilebilir) kaydedilir. 0 = kapalı (varsayılan)."""
     if threads:
         torch.set_num_threads(threads)
     out.mkdir(parents=True, exist_ok=True)
@@ -232,10 +290,42 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
     t0 = time.time()
     log = open(out / "train.log", "a", encoding="utf-8")
 
-    def save():
-        tmp = out / "ckpt.tmp"
-        torch.save({"config": cfg.to_dict(), "model": model.state_dict(), "opt": opt.state_dict(), "step": step}, tmp)
-        tmp.replace(ckpt)
+    def save(path: Path = ckpt, with_opt: bool = True):
+        tmp = path.with_suffix(".tmp")
+        ck = {"config": cfg.to_dict(), "model": model.state_dict(), "step": step}
+        if with_opt:
+            ck["opt"] = opt.state_dict()
+        torch.save(ck, tmp)
+        tmp.replace(path)
+
+    exams: list[dict] = []
+    best_prev = out / "exam.jsonl"
+    if best_prev.exists():  # aynı oturumda kaldığı yerden: önceki sınavlar
+        exams = [json.loads(x) for x in best_prev.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+    def write_status(final: bool = False, vl: float | None = None) -> dict:
+        st = {"step": step, "target_steps": steps, "done": step >= steps, "train_loss": ema,
+              "tokens_seen": step * batch * grad_accum * cfg.ctx, "params": model.n_params(), "device": str(dev),
+              "final": final}
+        if vl is not None:
+            st.update(val_loss=vl, val_ppl=math.exp(vl) if vl == vl else None)
+        if exams:
+            best = max(exams, key=lambda e: e["qa_score"])  # ilk en iyi = best.pt'deki
+            st.update(last_exam=exams[-1], best_exam=best)
+        (out / "status.json").write_text(json.dumps(st), encoding="utf-8")
+        return st
+
+    def exam():
+        ex = run_exam(model, bpe)
+        model.train()
+        e = {"step": step, "qa_score": ex["qa_score"], "persona_ok": ex["persona_ok"]}
+        is_best = not exams or e["qa_score"] > max(x["qa_score"] for x in exams)
+        exams.append(e)
+        with open(out / "exam.jsonl", "a", encoding="utf-8") as fx:
+            fx.write(json.dumps(e) + "\n")
+        if is_best:
+            save(out / "best.pt", with_opt=False)
+        print(f"sınav adım {step}: {e['qa_score']:.3f}{' (en iyi)' if is_best else ''}", flush=True)
 
     model.train()
     ema = None
@@ -261,17 +351,17 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
             msg = f"adım {step} kayıp {ema:.3f} süre {time.time() - t0:.0f}s"
             print(msg, flush=True)
             log.write(msg + "\n"); log.flush()
-        if step % 500 == 0:
+        if exam_every and step % exam_every == 0:
+            exam()
+        if step % save_every == 0:
             save()
+            write_status()
         if time.time() - t0 > budget_min * 60:
             print("süre bütçesi doldu; sonraki iş kaldığı yerden devam edecek", flush=True)
             break
     save()
     vl = val_loss(model, data, cfg.ctx)
-    status = {"step": step, "target_steps": steps, "done": step >= steps, "train_loss": ema,
-              "val_loss": vl, "val_ppl": math.exp(vl) if vl == vl else None,
-              "tokens_seen": step * batch * grad_accum * cfg.ctx, "params": model.n_params(), "device": str(dev)}
-    (out / "status.json").write_text(json.dumps(status), encoding="utf-8")
+    status = write_status(final=True, vl=vl)
     print(json.dumps(status), flush=True)
     return status
 
@@ -308,7 +398,7 @@ def generate(model: TinyGpt, bpe: BPE, text: str, max_new: int = 80, temperature
     out: list[int] = []
     model.eval()
     for _ in range(max_new):
-        x = torch.tensor([ids[-model.config.ctx:]])
+        x = torch.tensor([ids[-model.config.ctx:]], device=next(model.parameters()).device)
         logits = model(x)[0, -1]
         if temperature <= 0:
             nxt = int(torch.argmax(logits))
@@ -349,10 +439,11 @@ def evaluate_release(dir: Path) -> dict:
     return run_exam(model, bpe)
 
 
-def export_chat(run: Path, data: Path, out: Path) -> dict:
+def export_chat(run: Path, data: Path, out: Path, ckpt_name: str = "ckpt.pt") -> dict:
+    """ckpt_name: "best.pt" ile eğitim içi sınavın en iyi ağırlıkları dışa aktarılır (erken durdurma)."""
     from .export import export, load_quantized
     out.mkdir(parents=True, exist_ok=True)
-    info = export(run / "ckpt.pt", out / "model.bin")
+    info = export(run / ckpt_name, out / "model.bin")
     bpe = BPE.load(run / "tokenizer.json")
     bpe.save(out / "tokenizer.json")
     m = load_quantized(out / "model.bin")
@@ -374,6 +465,9 @@ def export_chat(run: Path, data: Path, out: Path) -> dict:
         samples.append({"metin": doc, "devam": generate(m, bpe, doc, temperature=0.7, seed=2)})
     (out / "samples.json").write_text(json.dumps(samples, ensure_ascii=False, indent=1), encoding="utf-8")
     status = json.loads((run / "status.json").read_text()) if (run / "status.json").exists() else {}
+    if ckpt_name != "ckpt.pt":  # adım, dışa aktarılan checkpoint'ten
+        ck_step = torch.load(run / ckpt_name, map_location="cpu", weights_only=False).get("step")
+        status = dict(status, step=ck_step, tokens_seen=None)
     vl = val_loss(m, data, m.config.ctx) if (data / "val.bin").exists() else float("nan")
     persona_ok = "Orion" in cases[0]["greedy_text"]
     ex = run_exam(m, bpe)
@@ -399,6 +493,8 @@ def main(argv=None) -> None:
     p.add_argument("--vocab", type=int, default=8192)
     p.add_argument("--tokenizer", help="önceki eğitimin tokenizer.json'ı (devam ederken aynı tokenizer şart)")
     p.add_argument("--no-open-data", action="store_true", help="açık lisanslı diyalog verisini indirme (test/çevrimdışı)")
+    p.add_argument("--extra-dialogs", help="ek diyalog jsonl(.gz) yolu ya da URL'si (ör. ceviri-* Release'i); "
+                                           "yalnız training_allowed=true satırlar")
     t = sub.add_parser("train")
     t.add_argument("--data", required=True)
     t.add_argument("--out", required=True)
@@ -411,19 +507,23 @@ def main(argv=None) -> None:
     t.add_argument("--size", choices=list(SIZES), default="kucuk")
     t.add_argument("--resume-from", help="önceki checkpoint (Kaggle: önceki oturumun çıktısı)")
     t.add_argument("--grad-accum", type=int, default=1)
+    t.add_argument("--save-every", type=int, default=500, help="ckpt.pt + status.json aralığı (adım)")
+    t.add_argument("--exam-every", type=int, default=0, help=">0: bu aralıkla sınav; en iyisi best.pt (0 = kapalı)")
     e = sub.add_parser("export")
     e.add_argument("--run", required=True)
     e.add_argument("--data", required=True)
     e.add_argument("--out", required=True)
+    e.add_argument("--ckpt", default="ckpt.pt", help="run klasöründeki checkpoint (best.pt: en iyi sınav)")
     a = ap.parse_args(argv)
     if a.cmd == "prepare":
         print(json.dumps(prepare(Path(a.out), a.max_chars, a.vocab, tokenizer=Path(a.tokenizer) if a.tokenizer else None,
-                                 open_data=not a.no_open_data), ensure_ascii=False, indent=1))
+                                 open_data=not a.no_open_data, extra_dialogs=a.extra_dialogs), ensure_ascii=False, indent=1))
     elif a.cmd == "train":
         train(Path(a.data), Path(a.out), a.steps, a.budget_min, a.batch, a.lr, a.dialog_frac, a.threads,
-              config=SIZES[a.size], resume_from=Path(a.resume_from) if a.resume_from else None, grad_accum=a.grad_accum)
+              config=SIZES[a.size], resume_from=Path(a.resume_from) if a.resume_from else None, grad_accum=a.grad_accum,
+              save_every=a.save_every, exam_every=a.exam_every)
     else:
-        export_chat(Path(a.run), Path(a.data), Path(a.out))
+        export_chat(Path(a.run), Path(a.data), Path(a.out), a.ckpt)
 
 
 if __name__ == "__main__":

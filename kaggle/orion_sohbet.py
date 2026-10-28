@@ -15,6 +15,12 @@ BUDGET_MIN = "__BUDGET__"
 REPO = "https://github.com/Eskay9633/Orion-renme-.git"
 CKPT_URL = "https://github.com/Eskay9633/Orion-renme-/releases/download/kaggle-devam-__SIZE__/ckpt.pt"
 TOK_URL = "__TOK__"  # önceki eğitimin tokenizer'ı (devam ederken aynısı şart); boşsa ilk eğitim
+EXTRA_URL = "__EXTRA__"  # isteğe bağlı çeviri verisi (en son ceviri-* Release'indeki ceviri.jsonl.gz); boşsa yok
+# İNCE AYAR (yalnız ek veri varsa): diyalog payı 0.75, taban lr 1.5e-4. lr_at kosinüs takvimi toplam hedef adıma
+# göre hesaplanır: 70000→90000 devamında etkin lr ~3e-5'ten ~1.5e-5'e iner (5e-4 tabanla ~1e-4'e SIÇRARDI).
+# Ek veri varken her 2000 adımda sınav (40 soru, açgözlü; ekran kartında tahmini <1 dk, doğrulanmadı) yapılır,
+# en iyi ağırlıklar best.pt'ye yazılır ve ayrıca chat-export-best olarak dışa aktarılır (erken durdurma).
+FT_LR, FT_DIALOG_FRAC, FT_EXAM_EVERY = "1.5e-4", "0.75", "2000"
 
 
 def sh(*a):
@@ -45,16 +51,32 @@ if prev and not tok:
     # Farklı tokenizer'la devam etmek modeli bozar: sıfırdan başla
     print("UYARI: önceki tokenizer yok; checkpoint kullanılmadan sıfırdan eğitilecek", flush=True)
     prev = ""
+extra = ""
+if EXTRA_URL.startswith("http"):
+    try:
+        urllib.request.urlretrieve(EXTRA_URL, "/kaggle/tmp/ceviri.jsonl.gz")
+        extra = "/kaggle/tmp/ceviri.jsonl.gz"
+        print("çeviri verisi indirildi; ince ayar ayarları kullanılacak:", EXTRA_URL, flush=True)
+    except Exception as e:  # veri yoksa eski davranış
+        print("çeviri verisi indirilemedi, ek veri olmadan devam:", e, flush=True)
 prep = [sys.executable, "-m", "orion_core.chat", "prepare", "--out", data]
 if tok:
     prep += ["--tokenizer", tok]
+if extra:
+    prep += ["--extra-dialogs", extra]
 sh(*prep)
+lr, dfrac = (FT_LR, FT_DIALOG_FRAC) if extra else ("5e-4", "0.25")
 args = [sys.executable, "-m", "orion_core.chat", "train", "--data", data, "--out", f"{out}/chat-run", "--size", SIZE,
-        "--steps", STEPS, "--batch", BATCH, "--budget-min", BUDGET_MIN, "--lr", "5e-4", "--dialog-frac", "0.25"]
+        "--steps", STEPS, "--batch", BATCH, "--budget-min", BUDGET_MIN, "--lr", lr, "--dialog-frac", dfrac]
+if extra:
+    args += ["--exam-every", FT_EXAM_EVERY]
 if prev:
     args += ["--resume-from", prev]
 sh(*args)
 sh(sys.executable, "-m", "orion_core.chat", "export", "--run", f"{out}/chat-run", "--data", data, "--out", f"{out}/chat-export")
+if os.path.exists(f"{out}/chat-run/best.pt"):
+    sh(sys.executable, "-m", "orion_core.chat", "export", "--run", f"{out}/chat-run", "--data", data,
+       "--out", f"{out}/chat-export-best", "--ckpt", "best.pt")
 for f in glob.glob(f"{out}/chat-run/*.tmp"):
     os.remove(f)
 print("bitti", flush=True)

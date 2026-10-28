@@ -15,6 +15,9 @@ on:
       steps:
         description: 'Hedef adım (orta: 55000, buyuk: 110000)'
         default: '55000'
+      ceviri:
+        description: 'Çeviri verisi: otomatik (en son ceviri-* Release, yoksa hiç), yok, ya da bir etiket (ceviri-...)'
+        default: 'otomatik'
   schedule:
     - cron: '23 */2 * * *'
 
@@ -52,11 +55,12 @@ jobs:
         run: |
           # Ayarlar elle başlatmada girdiden, zamanlanmışta depodaki kaggle/hedef.txt'den
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "${{ inputs.size }} ${{ inputs.steps }}" > kaggle/hedef.txt
+            echo "${{ inputs.size }} ${{ inputs.steps }} ${{ inputs.ceviri }}" > kaggle/hedef.txt
           fi
           if [ ! -f kaggle/hedef.txt ]; then echo "Hedef yok (henüz elle başlatılmadı)."; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          read SIZE STEPS < kaggle/hedef.txt
-          echo "size=$SIZE" >> "$GITHUB_OUTPUT"; echo "steps=$STEPS" >> "$GITHUB_OUTPUT"
+          # Biçim: "BOYUT ADIM [CEVIRI]" — CEVIRI yoksa "otomatik"
+          read SIZE STEPS CEVIRI < kaggle/hedef.txt
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"; echo "steps=$STEPS" >> "$GITHUB_OUTPUT"; echo "ceviri=${CEVIRI:-otomatik}" >> "$GITHUB_OUTPUT"
           KID="$KAGGLE_USERNAME/orion-sohbet-$SIZE"; echo "kid=$KID" >> "$GITHUB_OUTPUT"
           STATUS=$(kaggle kernels status "$KID" 2>&1 | tr 'A-Z' 'a-z' || true); echo "$STATUS"
           case "$STATUS" in
@@ -77,7 +81,16 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then echo "Zaten yayınlandı: $TAG"; echo "next=start" >> "$GITHUB_OUTPUT"
           else
             NOTES=$(python -c "import json;m=json.load(open('$M'));print(f\"Kaggle GPU · {m['params']:,} parametre · adım {m['step']} · ppl {m['val_ppl_int8']:.1f} · kişilik {m['persona_ok']} · sınav {m.get('qa_score')}\")")
-            gh release create "$TAG" $EXP/model.bin $EXP/tokenizer.json $EXP/manifest.json $EXP/parity.json $EXP/samples.json \
+            # Eğitim içi sınavın en iyi ağırlıkları (yalnız çeviri verisiyle ince ayarda; erken durdurma için)
+            BEST=$(dirname "$EXP")/chat-export-best; EXTRA_FILES=""
+            if [ -f "$BEST/manifest.json" ]; then
+              cp "$BEST/model.bin" kout/model-best.bin; cp "$BEST/manifest.json" kout/manifest-best.json
+              EXTRA_FILES="kout/model-best.bin kout/manifest-best.json"
+              NOTES="$NOTES · en iyi ara sınav: $(python -c "import json;m=json.load(open('$BEST/manifest.json'));print(f\"adım {m['step']} sınav {m.get('qa_score')}\")") (model-best.bin)"
+            fi
+            CEV=$(python -c "import json;d=json.load(open('$M')).get('data',{});print(d.get('ceviri_cift',''))")
+            [ -n "$CEV" ] && NOTES="$NOTES · çeviri çifti $CEV"
+            gh release create "$TAG" $EXP/model.bin $EXP/tokenizer.json $EXP/manifest.json $EXP/parity.json $EXP/samples.json $EXTRA_FILES \
               --target "$GITHUB_SHA" --title "Sohbet beyni (Kaggle) $TAG" --notes "$NOTES" --prerelease
             # Devam için checkpoint (sonraki oturum indirir)
             CK="kaggle-devam-${{ steps.st.outputs.size }}"
@@ -98,7 +111,14 @@ jobs:
           if gh release view "kaggle-devam-$SIZE" --json assets -q '.assets[].name' 2>/dev/null | grep -qx tokenizer.json; then TOK="$R/kaggle-devam-$SIZE/tokenizer.json"
           else LAST=$(gh release list --limit 100 --json tagName -q '.[].tagName' | grep "^sohbet-kaggle-$SIZE-" | sort | tail -1); TOK=${LAST:+$R/$LAST/tokenizer.json}; fi
           echo "tokenizer: ${TOK:-yok (ilk eğitim)}"
-          sed -e "s#__TOK__#$TOK#" -e "s/__SIZE__/$SIZE/g" -e "s/__STEPS__/$STEPS/" -e "s/__BATCH__/$BATCH/" -e "s/__BUDGET__/640/" kaggle/orion_sohbet.py > kpush/orion_sohbet.py
+          # Çeviri verisi (cevir.yml'nin Release'i): otomatik = en yeni ceviri-* etiketi; yoksa eski davranış
+          CEV="${{ steps.st.outputs.ceviri }}"; EXTRA=""
+          if [ "$CEV" = "otomatik" ]; then CEV=$(gh release list --limit 100 --json tagName -q '.[].tagName' | grep '^ceviri-' | sort | tail -1 || true); fi
+          if [ -n "$CEV" ] && [ "$CEV" != "yok" ] && gh release view "$CEV" --json assets -q '.assets[].name' 2>/dev/null | grep -qx ceviri.jsonl.gz; then
+            EXTRA="$R/$CEV/ceviri.jsonl.gz"
+          fi
+          echo "çeviri verisi: ${EXTRA:-yok}"
+          sed -e "s#__TOK__#$TOK#" -e "s#__EXTRA__#$EXTRA#" -e "s/__SIZE__/$SIZE/g" -e "s/__STEPS__/$STEPS/" -e "s/__BATCH__/$BATCH/" -e "s/__BUDGET__/640/" kaggle/orion_sohbet.py > kpush/orion_sohbet.py
           cat > kpush/kernel-metadata.json <<JSON
           {"id": "${{ steps.st.outputs.kid }}", "title": "orion-sohbet-$SIZE", "code_file": "orion_sohbet.py",
            "language": "python", "kernel_type": "script", "is_private": true,
