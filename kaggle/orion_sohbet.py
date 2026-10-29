@@ -53,12 +53,25 @@ if prev and not tok:
     prev = ""
 extra = ""
 if EXTRA_URL.startswith("http"):
-    try:
-        urllib.request.urlretrieve(EXTRA_URL, "/kaggle/tmp/ceviri.jsonl.gz")
-        extra = "/kaggle/tmp/ceviri.jsonl.gz"
-        print("çeviri verisi indirildi; ince ayar ayarları kullanılacak:", EXTRA_URL, flush=True)
-    except Exception as e:  # veri yoksa eski davranış
-        print("çeviri verisi indirilemedi, ek veri olmadan devam:", e, flush=True)
+    # Çeviri verisi istendiyse SESSİZCE atlanmaz (76000 oturumu indirme hatasıyla eski veriyle eğitilmişti):
+    # birkaç deneme, olmazsa oturum hata verir ve iş akışı yeniden başlatır.
+    import time
+    err = None
+    for attempt in range(1, 6):
+        try:
+            urllib.request.urlretrieve(EXTRA_URL, "/kaggle/tmp/ceviri.jsonl.gz")
+            size = os.path.getsize("/kaggle/tmp/ceviri.jsonl.gz")
+            if size < 1000:
+                raise IOError(f"dosya çok küçük ({size} bayt)")
+            extra = "/kaggle/tmp/ceviri.jsonl.gz"
+            print(f"ORION: çeviri verisi indirildi ({size} bayt); ince ayar ayarları kullanılacak:", EXTRA_URL, flush=True)
+            break
+        except Exception as e:
+            err = e
+            print(f"ORION: çeviri verisi indirilemedi (deneme {attempt}/5): {e!r}", flush=True)
+            time.sleep(10 * attempt)
+    if not extra:
+        raise SystemExit(f"ORION HATA: çeviri verisi istendi ama indirilemedi: {err!r}")
 prep = [sys.executable, "-m", "orion_core.chat", "prepare", "--out", data]
 if tok:
     prep += ["--tokenizer", tok]

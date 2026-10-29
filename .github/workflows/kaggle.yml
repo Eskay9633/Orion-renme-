@@ -73,6 +73,20 @@ jobs:
         id: col
         run: |
           mkdir -p kout && kaggle kernels output "${{ steps.st.outputs.kid }}" -p kout
+          # Oturum günlüğünden önemli satırlar (ORION işaretli, hata, çeviri/ek diyalog) — sessiz geri dönüşler görünsün
+          python - <<'PY' || true
+          import glob, json
+          for f in glob.glob("kout/*.log"):
+              try:
+                  rows = json.load(open(f, encoding="utf-8"))
+                  lines = [r.get("data", "") for r in rows if isinstance(r, dict)]
+              except Exception:
+                  lines = open(f, encoding="utf-8", errors="replace").read().splitlines()
+              keys = ("ORION", "Traceback", "Error", "ek diyalog", "çeviri", "checkpoint", "tokenizer")
+              for line in "".join(lines).splitlines():
+                  if any(k in line for k in keys):
+                      print("kaggle-günlük:", line[:300])
+          PY
           M=$(find kout -path '*chat-export/manifest.json' | head -1)
           if [ -z "$M" ]; then echo "Çıktıda model yok (oturum hata vermiş olabilir)."; echo "next=start" >> "$GITHUB_OUTPUT"; exit 0; fi
           EXP=$(dirname "$M"); RUN=$(dirname "$EXP")/chat-run
@@ -89,7 +103,7 @@ jobs:
               NOTES="$NOTES · en iyi ara sınav: $(python -c "import json;m=json.load(open('$BEST/manifest.json'));print(f\"adım {m['step']} sınav {m.get('qa_score')}\")") (model-best.bin)"
             fi
             CEV=$(python -c "import json;d=json.load(open('$M')).get('data',{});print(d.get('ceviri_cift',''))")
-            [ -n "$CEV" ] && NOTES="$NOTES · çeviri çifti $CEV"
+            if [ -n "$CEV" ]; then NOTES="$NOTES · çeviri çifti $CEV"; else NOTES="$NOTES · çeviri verisi KULLANILMADI"; fi
             gh release create "$TAG" $EXP/model.bin $EXP/tokenizer.json $EXP/manifest.json $EXP/parity.json $EXP/samples.json $EXTRA_FILES \
               --target "$GITHUB_SHA" --title "Sohbet beyni (Kaggle) $TAG" --notes "$NOTES" --prerelease
             # Devam için checkpoint (sonraki oturum indirir)
