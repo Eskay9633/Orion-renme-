@@ -94,17 +94,35 @@ def encode_target(bpe: BPE, src_ids: list[int], tgt: str, task: str) -> list[int
     return out
 
 
+def _infinitive_k(span: str, rest: str) -> str:
+    """Mastar işaretçisi '+k' yalnızca -me/-ma ile biten aralığa eklenir ('ödeme'+k → 'ödemek').
+    Başka aralıktan sonra gelen 'k' (ör. 'markete'+k, 'ilaç'+k) atılır. Kotlin: CoreModel.decodeOutput (aynı kural)."""
+    if rest.startswith("k") and (len(rest) == 1 or rest[1] == '"') and not span.lower().endswith(("me", "ma")):
+        return rest[1:]
+    return rest
+
+
 def decode_output(bpe: BPE, src_ids: list[int], ids: list[int]) -> str:
     """Model çıktısını çözer: işaretçi çiftleri girdideki metinle değiştirilir."""
     base = bpe.vocab_size
     parts: list[str] = []
     buf: list[int] = []
+    span: str | None = None  # son eklenen aralık (ardından gelen metin '+k' için denetlenir)
+
+    def flush():
+        nonlocal span
+        t = bpe.decode(buf)
+        if span is not None:
+            t = _infinitive_k(span, t)
+        parts.append(t)
+        buf.clear()
+        span = None
+
     i = 0
     while i < len(ids):
         t = ids[i]
         if t >= base:
-            parts.append(bpe.decode(buf))
-            buf = []
+            flush()
             a = t - base
             if i + 1 < len(ids) and ids[i + 1] >= base:
                 b = ids[i + 1] - base
@@ -113,9 +131,10 @@ def decode_output(bpe: BPE, src_ids: list[int], ids: list[int]) -> str:
                 b = a
                 i += 1
             if a <= b < len(src_ids):
-                parts.append(span_text(bpe, src_ids, a, b))
+                span = span_text(bpe, src_ids, a, b)
+                parts.append(span)
             continue
         buf.append(t)
         i += 1
-    parts.append(bpe.decode(buf))
+    flush()
     return "".join(parts)

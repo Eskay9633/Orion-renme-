@@ -49,33 +49,108 @@ class TimeExpr:
     when: str
 
 
-def _clock_phrase(rng: random.Random, h: int, m: int) -> str:
-    """Saat ifadesi; eki ile birlikte. h 0-23."""
+# Saatlerin okunuşu (yazıyla saat: "sabah yedide", "on birde")
+HOUR_WORDS = {1: "bir", 2: "iki", 3: "üç", 4: "dört", 5: "beş", 6: "altı", 7: "yedi", 8: "sekiz", 9: "dokuz",
+              10: "on", 11: "on bir", 12: "on iki"}
+# "çeyrek geçe" belirtme hâli (3'ü, 9'u, 6'yı), "çeyrek kala" yönelme hâli (9'a, 7'ye, 6'ya)
+_ACC_SUFFIX = {1: "i", 2: "yi", 3: "ü", 4: "ü", 5: "i", 6: "yı", 7: "yi", 8: "i", 9: "u", 10: "u", 11: "i", 12: "yi"}
+_DAT_SUFFIX = {1: "e", 2: "ye", 3: "e", 4: "e", 5: "e", 6: "ya", 7: "ye", 8: "e", 9: "a", 10: "a", 11: "e", 12: "ye"}
+
+
+def word_loc(n: int) -> str:
+    """Yazıyla saat + bulunma eki: 7 → yedide, 10 → onda, 11 → on birde."""
+    return HOUR_WORDS[n] + loc_suffix(n)
+
+
+def _part(rng: random.Random, h: int) -> tuple[str, int] | None:
+    """Gün bölümü + 12'lik saat. Yorum Kotlin TimeParser ile aynı: öğleden sonra/akşam 1-11 → +12,
+    gece 6-11 → +12, öğle/öğlen 1-5 → +12, sabah olduğu gibi."""
+    if 6 <= h <= 11:
+        return "sabah", h
+    if h == 12:
+        return "öğlen", 12
+    if 13 <= h <= 17:
+        return "öğleden sonra", h - 12
+    if 18 <= h <= 20:
+        return "akşam", h - 12
+    if 21 <= h <= 23:
+        return rng.choice(["akşam", "gece"]), h - 12
+    return None
+
+
+def _ext_clock(rng: random.Random, h: int, m: int, bare_word: bool) -> str | None:
+    """Yalnızca EĞİTİM için ek saat söyleyişleri (Kotlin TimeParser bunları henüz çözmüyor, bkz. rapor):
+    çeyrek geçe/kala, gün bölümsüz yazıyla saat ("dokuzda")."""
+    if m == 15:
+        if 7 <= h <= 12 and rng.random() < 0.5:
+            pre, n = "saat", h
+        else:
+            pre, n = _part(rng, h) or ("saat", h)
+        return f"{pre} {n}'{_ACC_SUFFIX[n]} çeyrek geçe"
+    if m == 45 and h + 1 <= 23:
+        hh = h + 1
+        if 8 <= hh <= 12 and rng.random() < 0.5:
+            pre, n = "saat", hh
+        else:
+            pre, n = _part(rng, hh) or ("saat", hh)
+        return f"{pre} {n}'{_DAT_SUFFIX[n]} çeyrek kala"
+    if m == 0 and bare_word and 7 <= h <= 11:
+        return word_loc(h)
+    return None
+
+
+def _clock_phrase(rng: random.Random, h: int, m: int, ext: bool = False, bare_word: bool = False) -> str:
+    """Saat ifadesi; eki ile birlikte. h 0-23. ext=True yalnızca eğitimde (Kotlin'in çözmediği biçimler)."""
+    if ext and rng.random() < 0.3:
+        p = _ext_clock(rng, h, m, bare_word)
+        if p:
+            return p
     style = rng.random()
+    part = _part(rng, h)
     if m == 0:
-        if style < 0.35 and 6 <= h <= 11:
-            return f"sabah {h}'{loc_suffix(h)}"
-        if style < 0.35 and 13 <= h <= 17:
-            hh = h - 12
-            return f"öğleden sonra {hh}'{loc_suffix(hh)}"
-        if style < 0.35 and 18 <= h <= 22:
-            hh = h - 12
-            return f"akşam {hh}'{loc_suffix(hh)}"
-        if style < 0.7:
+        if part and style < 0.4:
+            pre, n = part
+            if pre == "öğlen":
+                return rng.choice(["öğlen", "öğlen 12'de", "saat 12'de"])
+            if pre != "öğlen" and rng.random() < 0.4:
+                return f"{pre} {word_loc(n)}"  # "sabah yedide", "akşam sekizde"
+            return f"{pre} {n}'{loc_suffix(n)}"
+        if style < 0.5 and 7 <= h <= 12:
+            return f"saat {word_loc(h)}"  # "saat dokuzda"
+        if style < 0.53 and 13 <= h <= 14:
+            return f"öğlen {h - 12}'{loc_suffix(h - 12)}"  # "öğlen 1'de"
+        if style < 0.78:
             return f"saat {h}'{loc_suffix(h)}"
         return f"saat {h:02d}:00'{loc_suffix(h)}"
-    if m == 30 and style < 0.3:
-        return f"saat {h} buçukta"
+    if m == 30:
+        if style < 0.3:
+            return f"saat {h} buçukta"
+        if part and style < 0.55:
+            pre, n = part
+            if pre != "öğlen" and rng.random() < 0.4:
+                return f"{pre} {HOUR_WORDS[n]} buçukta"  # "akşam sekiz buçukta"
+            return f"{pre} {n} buçukta"  # "akşam 8 buçukta"
+    if part and part[0] != "öğlen" and style > 0.85:
+        return f"{part[0]} {part[1]}:{m:02d}'{loc_suffix(m)}"  # "akşam 8:15'te"
+    if style > 0.7:
+        return f"{h:02d}:{m:02d}'{loc_suffix(m)}"  # "18:05'te" (saat sözcüğü olmadan)
     return f"saat {h:02d}:{m:02d}'{loc_suffix(m)}"
 
 
-def random_time(rng: random.Random, allow_offset: bool = True) -> TimeExpr:
+def month_loc(month: str) -> str:
+    """Ay adı + bulunma eki: kasımda, ekimde, martta, aralıkta."""
+    hard = month[-1] in "çfhkpsşt"
+    return month + ("t" if hard else "d") + G.h2(month)
+
+
+def random_time(rng: random.Random, allow_offset: bool = True, split: str = "test") -> TimeExpr:
+    """split='train' ise Kotlin'in henüz çözmediği ek söyleyişler de üretilir (test kümeleri değişmez)."""
+    ext = split == "train"
     h = rng.choice([7, 8, 9, 9, 10, 10, 11, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22])
     m = rng.choice([0, 0, 0, 0, 15, 30, 30, 45, 10, 20, 40, 50, 5])
     hm = f"{h:02d}:{m:02d}"
-    clock = _clock_phrase(rng, h, m)
     kind = rng.random()
-    if allow_offset and kind < 0.18:
+    if allow_offset and kind < 0.16:
         unit = rng.choice(["m", "m", "h", "d"])
         if unit == "m":
             n = rng.choice([5, 10, 15, 20, 25, 30, 40, 45, 50, 90])
@@ -87,21 +162,35 @@ def random_time(rng: random.Random, allow_offset: bool = True) -> TimeExpr:
             return TimeExpr(f"{n} saat sonra", f"+{n}h")
         n = rng.randint(2, 14)
         return TimeExpr(f"{n} gün sonra", f"+{n}d")
-    if kind < 0.45:
-        return TimeExpr(f"yarın {clock}", f"d+1@{hm}")
-    if kind < 0.58:
-        return TimeExpr(f"bugün {clock}", f"d+0@{hm}")
-    if kind < 0.64:
-        return TimeExpr(f"öbür gün {clock}", f"d+2@{hm}")
-    if kind < 0.7:
-        n = rng.randint(3, 9)
-        return TimeExpr(f"{n} gün sonra {clock}", f"d+{n}@{hm}")
-    if kind < 0.88:
+    if ext and kind > 0.995:
+        # "bu gece yarısı" = bugünü yarına bağlayan gece 00:00
+        return TimeExpr("bu gece yarısı", "d+1@00:00")
+    if kind < 0.74:
+        clock = _clock_phrase(rng, h, m, ext, bare_word=True)
+        if kind < 0.38:
+            return TimeExpr(f"yarın {clock}", f"d+1@{hm}")
+        if kind < 0.47:
+            return TimeExpr(f"bugün {clock}", f"d+0@{hm}")
+        if kind < 0.52:
+            return TimeExpr(f"öbür gün {clock}", f"d+2@{hm}")
+        if kind < 0.57:
+            n = rng.randint(3, 9)
+            return TimeExpr(f"{n} gün sonra {clock}", f"d+{n}@{hm}")
         tr, code = rng.choice(DOW_TR)
         return TimeExpr(f"{tr} {clock}", f"{code}@{hm}")
+    if kind < 0.79:
+        # Gün sözcüğü yok: bugün sayılır (Kotlin TimeParser: gün yoksa d+0). Gün bölümü ya da "saat" şart.
+        clock = _clock_phrase(rng, h, m, ext, bare_word=False)
+        return TimeExpr(clock, f"d+0@{hm}")
     mo = rng.randint(1, 12)
     d = rng.randint(1, MONTH_DAYS[mo - 1])
-    return TimeExpr(f"{d} {MONTHS_TR[mo - 1]} {clock}", f"{mo:02d}-{d:02d}@{hm}")
+    clock = _clock_phrase(rng, h, m, ext, bare_word=False)
+    month = MONTHS_TR[mo - 1]
+    r = rng.random()
+    mtr = month_loc(month) if r < 0.3 else month
+    if ext and rng.random() < 0.25:
+        mtr = mtr[:1].upper() + mtr[1:]  # "1 Kasım": eğitimde büyük harfli ay adı da görülsün
+    return TimeExpr(f"{d} {mtr} {clock}", f"{mo:02d}-{d:02d}@{hm}")
 
 
 # --------------------------------------------------------------------------- değerler
@@ -244,7 +333,7 @@ OOD_N = 2
 
 
 def _rem(rng, sp):
-    t = random_time(rng)
+    t = random_time(rng, split=sp)
     txt = pick(rng, REMINDER_TEXTS, sp, lambda r: random_phrase(r, 1, 4))
     return t, txt
 
@@ -261,11 +350,11 @@ def reminder_templates() -> list[Gen]:
     def e(rng, sp):
         h = rng.choice([7, 8, 9, 12, 13, 20, 21, 22]); m = rng.choice([0, 0, 30])
         x = pick(rng, REMINDER_TEXTS, sp, lambda r: random_phrase(r, 1, 4))
-        return (f"her gün {_clock_phrase(rng, h, m)} {x} hatırlat",
+        return (f"her gün {_clock_phrase(rng, h, m, sp == 'train')} {x} hatırlat",
                 {"at": f"d+0@{h:02d}:{m:02d}", "text": x, "repeat": "daily"})
     def f(rng, sp):
         tr, code = rng.choice(DOW_TR); h = rng.choice([8, 9, 10, 18, 19]); x = pick(rng, REMINDER_TEXTS, sp, lambda r: random_phrase(r, 1, 4))
-        return (f"her {tr} {_clock_phrase(rng, h, 0)} {x} hatırlat",
+        return (f"her {tr} {_clock_phrase(rng, h, 0, sp == 'train')} {x} hatırlat",
                 {"at": f"{code}@{h:02d}:00", "text": x, "repeat": "weekly"})
     # OOD
     def g(rng, sp):
@@ -338,7 +427,7 @@ def repo_templates() -> list[Gen]:
 
 def calendar_add_templates() -> list[Gen]:
     def ev(rng, sp):
-        return random_time(rng, allow_offset=False), pick(rng, EVENT_TITLES, sp, lambda r: random_phrase(r, 1, 3))
+        return random_time(rng, allow_offset=False, split=sp), pick(rng, EVENT_TITLES, sp, lambda r: random_phrase(r, 1, 3))
     def a(rng, sp): t, x = ev(rng, sp); return f"{t.tr} takvime {x} ekle", {"title": x, "start": t.when}
     def b(rng, sp): t, x = ev(rng, sp); return f"takvimime {t.tr} {x} koy", {"title": x, "start": t.when}
     def c(rng, sp):
@@ -634,7 +723,9 @@ def t2c_example(rng: random.Random, split: str = "train", noise: bool = True) ->
 def _t2c_example_once(rng: random.Random, split: str, noise: bool) -> dict:
     cmds = list(WEIGHTS)
     cmd = rng.choices(cmds, weights=[WEIGHTS[c] for c in cmds])[0]
-    if split == "legacy_ood":
+    if split == "train" and rng.random() < CONTRAST_FRAC:
+        cmd, tr, args = contrast_example(rng)
+    elif split == "legacy_ood":
         tr, args = rng.choice(_templates_for(cmd, "test_ood"))(rng, "test_ood")
     elif split == "test_ood" or rng.random() < GRAMMAR_FRAC:
         tr, args = grammar_example(rng, cmd, split)
@@ -717,6 +808,18 @@ ERR_TR = {
 }
 
 
+def _answer_text(rng: random.Random) -> str:
+    """Cevapta kopyalanan hatırlatıcı metni: 1-6 kelime, sıkça mastar/ad tamlaması ("veteriner randevusu").
+    Tur 13: yalnızca 30 sabit (çoğu 1-2 parça) metinle eğitilen model uzun metni kesiyordu ("veter")."""
+    r = rng.random()
+    if r < 0.3:
+        return (random_phrase(rng, 1, 4) + " " + rng.choice(_lex()["inf"])).strip()
+    if r < 0.45:
+        return rng.choice(_lex()["nouns"]) + " " + rng.choice(["randevusu", "toplantısı", "faturası", "teslimi", "kontrolü",
+                                                               "hediyesi", "provası", "ödemesi", "dersi", "sınavı"])
+    return random_phrase(rng, 1, 6)
+
+
 def answer_example(rng: random.Random, split: str = "train") -> dict:
     """Cevap JSON'undan sabit biçimli Türkçe cevap (Kotlin Responder ile aynı kalıplar)."""
     kind = rng.random()
@@ -730,7 +833,7 @@ def answer_example(rng: random.Random, split: str = "train") -> dict:
         tgt = "Hiç not bulamadım." if n == 0 else f"{n} not buldum."
         return {"task": "ans", "src": canonical(resp), "tgt": tgt}
     if kind < 0.8:
-        x = rng.choice(_split(REMINDER_TEXTS, split))
+        x = pick(rng, REMINDER_TEXTS, split, _answer_text, 0.85)
         resp = {"v": 1, "id": "g", "status": "ok", "result": {"kind": "reminder", "text": x}, "err_code": None, "next": []}
         return {"task": "ans", "src": canonical(resp), "tgt": f"Tamam, \"{x}\" için hatırlatıcı kurdum."}
     resp = {"v": 1, "id": "g", "status": "needs_confirmation", "result": {"kind": "proposal"}, "err_code": None, "next": []}
@@ -792,18 +895,19 @@ def _fill(frame: str, **kw) -> str:
     return " ".join(out.split()).replace(" ,", ",")
 
 
-REM_VERBS = ["hatırlat", "hatırlatıcı kur", "haber ver", "anımsat", "uyar", "hatırlatma kur", "alarm kur",
+REM_VERBS = ["hatırlat", "hatırlatıcı kur", "haber ver", "hatırlatıcı ayarla", "uyar", "hatırlatma kur", "alarm kur",
              "bildirim gönder", "hatırlatma ekle", "aklıma getir", "alarm ayarla", "beni uyar", "bana hatırlat",
-             "hatırlatıcı ekle", "bildir", "hatırlatıcı oluştur"]
-REM_FRAMES = ["{T} {X} {V}", "{T} bana {X} diye {V}", "{X} için {T} {V}", "{V}: {X}, {T}",
+             "hatırlatıcı ekle", "bildir", "hatırlatıcı oluştur", "anımsat"]
+REM_FRAMES = ["{T} {X} {V}", "{T} bana {X} diye {V}", "{X} için {T} {V}", "{X} var, {T} {V}",
               "{T} {X} için {V}", "{X} diye {T} {V}", "{X}, {T}, {V}", "{X} konusunda {T} {V}",
-              "{T} {V}, {X}", "{T} bana {X} için {V}", "{X} için bana {T} {V}", "{V}, {T} {X}"]
+              "{T} {V}, {X}", "{T} bana {X} için {V}", "{X} için bana {T} {V}", "{T} {V}: {X}",
+              "{V}: {X}, {T}", "{V}, {T} {X}"]
 REM_ACC_FRAMES = ["{T} {XA} {V}", "{XA} {T} {V}", "{T} bana {XA} {V}", "{XA} unutmayayım, {T} {V}"]
 REM_ACC_VERBS = ["hatırlat", "anımsat", "bana hatırlat", "aklıma getir", "unutturma", "hatırlatıver"]
 
 
 def g_reminder(rng, sp, hf, hv):
-    t = random_time(rng)
+    t = random_time(rng, split=sp)
     if rng.random() < 0.3:
         inf = pick(rng, [x for x in REMINDER_TEXTS if G.inf_accusative(x)], sp,
                    lambda r: (random_phrase(r, 0, 2) + " " + r.choice(_lex()["inf"])).strip())
@@ -830,8 +934,12 @@ def g_reminder_list(rng, sp, hf, hv):
     return f"{s} {p}", {}
 
 
+# Tur 14: ayrılmış "kayda geç" eğitime alındı (yalnızca karşıt çiftlerde: Kotlin kural çevirici bu ön eki
+# çözmüyor, test kümelerine girmesin); yerine görülmemiş "bir not yaz" ayrıldı. "unutmamak için kaydet"
+# ayrılmış kalır (legacy_ood'da da aynı kalıp var). Etiket: kaydet/kayda geç = note.write,
+# "hafızana kaydet"/"tercihimi kaydet" = memory.save.
 NOTE_VERBS = ["not al", "not et", "not yaz", "notlarıma ekle", "bir kenara yaz", "kaydet", "bir yere yaz", "unutmamak için kaydet",
-              "not defterime ekle", "deftere yaz", "not düş", "kayda geç", "not olarak kaydet", "bir yere not et",
+              "not defterime ekle", "deftere yaz", "not düş", "bir not yaz", "not olarak kaydet", "bir yere not et",
               "notlara ekle", "not bırak", "yazıver"]
 NOTE_FRAMES = ["{V}: {X}", "şunu {V}: {X}", "{X} diye {V}", "{X}, {V}", "{V} lütfen: {X}", "bunu {V}: {X}",
                "{V} — {X}", "hemen {V}: {X}"]
@@ -885,11 +993,12 @@ def g_research(rng, sp, hf, hv):
 CAL_VERBS = ["takvime ekle", "takvimime koy", "takvime yaz", "ajandama yaz", "ajandaya ekle", "randevu oluştur",
              "etkinlik oluştur", "programıma ekle", "takvime kaydet", "planla", "takvime işle", "etkinlik ekle"]
 CAL_FRAMES = ["{T} {X} {V}", "{X} için {T} {V}", "{V}: {X}, {T}", "{X}, {T}, {V}", "{T} {X} var, {V}",
-              "{T} {X} etkinliği, {V}", "{X} {T}, {V}", "{V}, {T} {X}"]
+              "{T} {X} etkinliği, {V}", "{X} {T}, {V}", "{T} {V}: {X}",
+              "{V}, {T} {X}", "{V}: {T} {X}"]
 
 
 def g_calendar_add(rng, sp, hf, hv):
-    t = random_time(rng, allow_offset=False)
+    t = random_time(rng, allow_offset=False, split=sp)
     x = pick(rng, EVENT_TITLES, sp, lambda r: random_phrase(r, 1, 3))
     v = _verb(rng, sp, CAL_VERBS, hv)
     args = {"title": x, "start": t.when}
@@ -903,8 +1012,9 @@ def g_calendar_add(rng, sp, hf, hv):
 
 
 DAYS = [("bugün", "d+0"), ("yarın", "d+1"), ("öbür gün", "d+2"), ("bu gün", "d+0"), ("ertesi gün", "d+2")]
-CL_PRED = ["takvimde ne var", "programım ne", "neler var", "boş muyum", "işim var mı", "etkinliklerimi göster",
-           "ne yapacağım", "randevum var mı", "takvimime bak", "planım ne", "programımda ne var", "meşgul müyüm"]
+CL_PRED = ["takvimde ne var", "programım ne", "neler var", "toplantım var mı", "işim var mı", "etkinliklerimi göster",
+           "ne yapacağım", "randevum var mı", "takvimime bak", "planım ne", "programımda ne var", "bir işim var mı",
+           "boş muyum", "meşgul müyüm"]
 
 
 def g_calendar_list(rng, sp, hf, hv):
@@ -913,7 +1023,10 @@ def g_calendar_list(rng, sp, hf, hv):
     else:
         tr, d = rng.choice(DAYS)
     p = G.choose(rng, CL_PRED, sp, hf or hv)
-    return (f"{tr} {p}" if rng.random() < 0.8 else f"{p}, {tr}"), {"day": d}
+    s = f"{tr} {p}" if rng.random() < 0.8 else f"{p}, {tr}"
+    if p in ("boş muyum", "meşgul müyüm") and rng.random() < 0.3:
+        s += rng.choice([", takvimime bak", ", takvimi kontrol et", ", ajandama bak"])
+    return s, {"day": d}
 
 
 TIMER_VERBS = ["zamanlayıcı kur", "geri sayım başlat", "sayaç başlat", "say", "süre tut", "zamanlayıcı başlat",
@@ -937,7 +1050,7 @@ def g_timer(rng, sp, hf, hv):
 MEM_NOTE = ["bunu hatırla", "şunu aklında tut", "aklında olsun", "kalıcı hafızaya yaz", "hafızana kaydet",
             "bunu unutma", "şunu öğren", "bunu bil"]
 MEM_PREF = ["tercihim şu", "benim için kural", "bundan sonra şöyle yap", "bir tercihim var", "kuralım şu",
-            "her zaman şöyle olsun", "alışkanlığım şu", "tercihimi kaydet"]
+            "her zaman şöyle olsun", "alışkanlığım şu", "alışkanlığımı kaydet", "tercihimi kaydet"]
 # "yeni beceri: X" skill.learn'e aittir (aynı cümle iki komuta etiketlenmesin: model çelişkili veriyle yanlış iş yapar)
 MEM_SKILL = ["bu adımları beceri olarak kaydet", "beceri olarak kaydet", "bunu beceri olarak öğren"]
 
@@ -949,10 +1062,11 @@ def g_memory(rng, sp, hf, hv):
     return f"{G.choose(rng, pool, sp, hf or hv)}: {x}", {"kind": kind, "text": x}
 
 
+# "becerilerin neler" skill.list'e aittir (Tur 14: help ile çift etiketliydi)
 HELP_PHR = ["neler yapabilirsin", "ne yapabiliyorsun", "yeteneklerin neler", "nasıl kullanılırsın", "komutların neler",
             "ne işe yararsın", "hangi işleri yaparsın", "yardım", "bana neler yaparsın", "neler biliyorsun",
-            "kullanım kılavuzu", "ne yapabildiğini göster", "becerilerin neler", "yardım menüsü", "nasıl yardımcı olabilirsin",
-            "seninle neler yapabilirim"]
+            "kullanım kılavuzu", "ne yapabildiğini göster", "komutları göster", "yardım menüsü", "nasıl yardımcı olabilirsin",
+            "ne yapabilirsin", "seninle neler yapabilirim"]
 
 
 def g_help(rng, sp, hf, hv):
@@ -976,15 +1090,76 @@ def g_ask(rng, sp, hf, hv):
     return pre + q + ("?" if not pre and rng.random() < 0.5 else ""), {"question": q}
 
 
+_UNIT_W = ["", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz"]
+_TENS_W = ["", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan"]
+
+
+def _num_last_word(n: int) -> str:
+    """Sayının okunuşundaki son kelime (ek uyumu için): 250 → elli, 18 → sekiz, 300 → yüz, 2000 → bin."""
+    if n == 0:
+        return "sıfır"
+    if n % 10:
+        return _UNIT_W[n % 10]
+    if n % 100:
+        return _TENS_W[(n // 10) % 10]
+    if n % 1000:
+        return "yüz"
+    return "bin"
+
+
+def num_genitive(n: int) -> str:
+    """250'nin, 18'in, 40'ın, 6'nın, 9'un."""
+    w = _num_last_word(n)
+    v = G.h4(w)
+    return f"{n}'{'n' if w[-1] in G.VOWELS else ''}{v}n"
+
+
+def num_possessive(n: int) -> str:
+    """yüzde 18'i, yüzde 20'si, yüzde 6'sı, yüzde 40'ı."""
+    w = _num_last_word(n)
+    v = G.h4(w)
+    return f"{n}'{'s' if w[-1] in G.VOWELS else ''}{v}"
+
+
+CALC_NUMS = [2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 25, 40, 64, 75, 100, 150, 250, 1250, 3600]
+# İşlem kalıpları: ayrılmış (i % 4 == 3) yerlerde yalnızca yeni kalıplar var; Tur 13'te ayrılmış olan
+# "bölü"/"kere" kalıpları eğitime alındı (bölü hiç eğitimde yoktu → "4 bölü 250" = 4*250 hatası).
+CALC_FORMS = [("{a} artı {b} kaç", "+"), ("{a} eksi {b} kaç", "-"), ("{a} çarpı {b} kaç", "*"), ("{a} ile {b} bölümü kaç", "/"),
+              ("{a} ile {b} toplamı kaç", "+"), ("{a} ile {b} farkı kaç", "-"), ("{a} ile {b} çarpımı kaç", "*"),
+              ("{a} x {b} ne eder", "*"), ("hesapla: {a}+{b}", "+"), ("hesapla: {a}*{b}", "*"),
+              ("{a} x {b} kaç", "*"), ("{a} eksi {b} sonucu ne", "-"),
+              ("{a} bölü {b} kaç", "/"), ("{a} kere {b} kaç eder", "*"), ("{a} bölü {b} ne eder", "/"),
+              ("{a} ile {b} bölümü ne eder", "/"), ("{a} kere {b} kaç", "*"), ("{a} kere {b} ne eder", "*"),
+              ("hesapla: {a} kere {b}", "*"), ("{a} ile {b} toplamı kaç eder", "+"), ("hesapla: {a} bölü {b}", "/"),
+              ("{a} eksi {b} ne eder", "-"), ("{a} artı {b} ne eder", "+"), ("{a} ile {b} çarpımı ne eder", "*"),
+              ("hesapla: {a} çarpı {b}", "*"), ("{a} çarpı {b} ne eder", "*"), ("{a} artı {b} kaç eder", "+"),
+              ("{a} artı {b} eksi {c} kaç", "+-"), ("{a}'{ag} yüzde {b}'{bp} kaç", "%"), ("{a} kere {b} artı {c} kaç", "*+"),
+              ("hesapla: {a} artı {b}", "+"), ("hesapla: {a} eksi {b}", "-")]
+# Yalnızca eğitimde (Kotlin kural çevirici bu söyleyişleri çözmüyor; test kümeleri değişmesin)
+CALC_FORMS_TRAIN = [("{a} sayısının yüzde {b}'{bp} ne eder", "%"), ("{a} kere {b} kaçtır", "*"), ("{a} bölü {b} kaçtır", "/"),
+                    ("{a} çarpı {b} eşittir kaç", "*"), ("{a} kere {b} yapar kaç", "*")]
+
+
 def g_calc(rng, sp, hf, hv):
-    def n(): return rng.choice([2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 25, 40, 64, 75, 100, 150, 250, 1250, 3600])
-    a, b = n(), n()
-    forms = [("{a} artı {b} kaç", "+"), ("{a} eksi {b} kaç", "-"), ("{a} çarpı {b} kaç", "*"), ("{a} bölü {b} kaç", "/"),
-             ("{a} ile {b} toplamı kaç", "+"), ("{a} ile {b} farkı kaç", "-"), ("{a} ile {b} çarpımı kaç", "*"),
-             ("{a} kere {b} kaç eder", "*"), ("hesapla: {a}+{b}", "+"), ("hesapla: {a}*{b}", "*"),
-             ("{a} x {b} kaç", "*"), ("{a} bölü {b} ne eder", "/")]
-    f, op = G.choose(rng, forms, sp, hf or hv)
-    return f.format(a=a, b=b), {"expr": f"{a}{op}{b}"}
+    def n():
+        if sp == "train" and rng.random() < 0.5:
+            # Daha geniş sayı havuzu (kopyalama öğrenilsin): 2-999, bazen 1000-99999
+            return rng.randint(1000, 99999) if rng.random() < 0.15 else rng.randint(2, 999)
+        return rng.choice(CALC_NUMS)
+    a, b, c = n(), n(), n()
+    if sp == "train" and rng.random() < 0.12:
+        f, op = rng.choice(CALC_FORMS_TRAIN)
+    else:
+        f, op = G.choose(rng, CALC_FORMS, sp, hf or hv)
+    if op == "%":
+        b = rng.choice([5, 10, 15, 18, 20, 25, 30, 40, 50, 75]) if rng.random() < 0.7 else rng.randint(1, 99)
+        expr = f"{a}*{b}/100"
+    elif len(op) == 2:
+        expr = f"{a}{op[0]}{b}{op[1]}{c}"
+    else:
+        expr = f"{a}{op}{b}"
+    s = f.replace("'{ag}", num_genitive(a)[len(str(a)):]).replace("'{bp}", num_possessive(b)[len(str(b)):])
+    return s.format(a=a, b=b, c=c), {"expr": expr}
 
 
 LANG = [("İngilizce", "en"), ("Almanca", "de"), ("Fransızca", "fr"), ("İspanyolca", "es"), ("Arapça", "ar"),
@@ -1000,10 +1175,12 @@ def g_translate(rng, sp, hf, hv):
 
 
 IMGA = [("ekteki fotoğrafı oku", None), ("bu ekran görüntüsünde ne yazıyor", None), ("fotoğraftaki yazıyı çıkar", None),
-        ("resimdeki yazıyı oku", None), ("ss'i oku", None), ("görseldeki metni çıkar", None),
-        ("ekran görüntüsündeki sorunu çöz", "sorunu çöz"), ("fotoğraftaki hatayı çöz", "hatayı çöz")]
+        ("resimde ne yazdığını söyle", None), ("ss'i oku", None), ("görseldeki metni çıkar", None),
+        ("ekran görüntüsündeki sorunu çöz", "sorunu çöz"), ("fotoğraftaki hatayı çöz", "hatayı çöz"),
+        ("resimdeki yazıyı oku", None), ("görseldeki yazıyı oku", None)]
 IMGA_Q = ["resmi incele: {Q}", "ekran görüntüsüne bak ve şunu cevapla: {Q}", "fotoğrafa bakıp söyle: {Q}",
-          "görsele bak: {Q}", "ss'e bakar mısın: {Q}", "resimde şunu bul: {Q}"]
+          "şu görsele bir bak: {Q}", "ss'e bakar mısın: {Q}", "resimde şunu bul: {Q}", "görsele bak: {Q}",
+          "fotoğrafa bak: {Q}"]
 
 
 def g_image_analyze(rng, sp, hf, hv):
@@ -1016,7 +1193,9 @@ def g_image_analyze(rng, sp, hf, hv):
 
 IMGG_VERBS = ["resmi çiz", "görseli oluştur", "resmi yap", "görseli üret", "resmi oluştur", "çizimi yap",
               "illüstrasyonu hazırla", "resmini çiz"]
-IMGG_PRE = ["resim oluştur: {X}", "görsel üret: {X}", "bana bir resim çiz: {X}", "çiz: {X}"]
+# "çiz: X" yalnızca karşıt çiftlerde (Kotlin kural çevirici çözmüyor; test kümelerine girmesin)
+IMGG_PRE = ["resim oluştur: {X}", "görsel üret: {X}", "bana bir resim çiz: {X}", "görsel oluştur: {X}",
+            "{X} temalı bir görsel hazırla", "{X} temalı bir resim çiz"]
 
 
 def g_image_generate(rng, sp, hf, hv):
@@ -1154,8 +1333,24 @@ def g_skill_list(rng, sp, hf, hv):
                           "araçlarını göster", "dış ajanları göster", "becerilerini göster", "becerilerin ne"], sp, hf or hv), {}
 
 
+SKILL_CONVERBS = ["bulup", "toplayıp", "okuyup", "inceleyip", "derleyip", "karşılaştırıp", "araştırıp", "seçip",
+                  "ayıklayıp", "özetleyip", "kontrol edip", "sıralayıp"]
+SKILL_FINAL_VERBS = ["listele", "özetle", "bul", "derle", "takip et", "çıkar", "hazırla", "karşılaştır", "raporla",
+                     "bildir", "göster", "sırala", "gönder", "incele", "hesapla"]
+
+
+def _skill_goal(rng: random.Random) -> str:
+    """Eğitim hedefi; çoğu emir fiiliyle biter ("... araçlar bulup listele"): son fiil hedefe dahildir (Tur 13 hatası)."""
+    r = rng.random()
+    if r < 0.4:
+        return f"{random_phrase(rng, 1, 4)} {rng.choice(SKILL_CONVERBS)} {rng.choice(SKILL_FINAL_VERBS)}"
+    if r < 0.8:
+        return f"{random_phrase(rng, 2, 6)} {rng.choice(SKILL_FINAL_VERBS)}"
+    return random_phrase(rng, 3, 8)
+
+
 def g_skill_learn(rng, sp, hf, hv):
-    goal = pick(rng, SKILL_GOALS, sp, lambda r: random_phrase(r, 3, 8))
+    goal = pick(rng, SKILL_GOALS, sp, _skill_goal)
     pre = G.choose(rng, ["beceri öğren", "yeni beceri öğren", "şunu yapmayı öğren", "yeni beceri"], sp, hf or hv)
     return f"{pre}: {goal}", {"goal": goal}
 
@@ -1267,6 +1462,134 @@ GRAMMAR_FRAC = 0.75
 
 
 AGENT_NAMES = ["Mike", "Sophia", "Emma", "Luna", "David", "Jack", "Chloe", "Grace", "Maya", "Orion"]
+
+
+# --------------------------------------------------------------------------- karşıt çiftler (Tur 14)
+# Aynı anahtar sözcük, farklı komut. Yalnızca EĞİTİMDE üretilir; değerler eğitim havuzlarından, kalıplar
+# dilbilgisi motorunun eğitim parçalarıdır (ayrılmış i % 4 == 3 parçaları ve legacy_ood'un birebir kalıpları
+# kullanılmaz; bkz. test_datagen.test_contrast_frames_not_held_out).
+CONTRAST_FRAC = 0.08
+
+
+def _c_text(rng, values, lo, hi):
+    return pick(rng, values, "train", lambda r: random_phrase(r, lo, hi))
+
+
+def _c_mem(rng):
+    return _c_text(rng, MEMORY_TEXTS, 2, 7)
+
+
+def _c_note(rng):
+    return _c_text(rng, NOTE_TEXTS, 2, 9)
+
+
+def _c_rem(rng):
+    return _c_text(rng, REMINDER_TEXTS, 1, 4)
+
+
+def _c_ev(rng):
+    return _c_text(rng, EVENT_TITLES, 1, 3)
+
+
+def _c_topic(rng):
+    return _c_text(rng, TOPICS, 1, 5)
+
+
+def _c_prompt(rng):
+    return _c_text(rng, IMAGE_PROMPTS, 2, 6)
+
+
+def _c_q(rng):
+    return _c_text(rng, QUESTIONS, 2, 6)
+
+
+def _c_min(rng):
+    return rng.choice([1, 2, 3, 4, 5, 7, 8, 10, 12, 15, 20, 25, 30, 40, 45, 60, 90])
+
+
+def _c_day(rng):
+    return rng.choice([("bugün", "d+0"), ("yarın", "d+1"), ("öbür gün", "d+2")])
+
+
+def _contrast_groups() -> dict[str, list]:
+    """Grup adı → [(komut, üretici)]. Her grupta aynı anahtar sözcüğün en az iki farklı komutu var."""
+    def t(rng):
+        return random_time(rng, split="train")
+
+    def tc(rng):
+        return random_time(rng, allow_offset=False, split="train")
+
+    return {
+        "kaydet": [
+            ("memory.save", lambda rng: (lambda x: (f"tercihimi kaydet: {x}", {"kind": "preference", "text": x}))(_c_mem(rng))),
+            ("memory.save", lambda rng: (lambda x: (f"hafızana kaydet: {x}", {"kind": "note", "text": x}))(_c_mem(rng))),
+            ("memory.save", lambda rng: (lambda x: (f"bunu tercih olarak kaydet: {x}", {"kind": "preference", "text": x}))(_c_mem(rng))),
+            ("note.write", lambda rng: (lambda x: (f"kaydet: {x}", {"text": x}))(_c_note(rng))),
+            ("note.write", lambda rng: (lambda x: (f"kayda geç: {x}", {"text": x}))(_c_note(rng))),
+            ("note.write", lambda rng: (lambda x: (f"{x}, kayda geç", {"text": x}))(_c_note(rng))),
+            ("note.write", lambda rng: (lambda x: (f"not olarak kaydet: {x}", {"text": x}))(_c_note(rng))),
+            ("note.write", lambda rng: (lambda x: (f"not al: {x}", {"text": x}))(_c_note(rng))),
+        ],
+        "sayaç/hatırlat": [
+            ("timer.start", lambda rng: (lambda m: (f"{m} dakika sonra haber ver diye {rng.choice(['geri sayım başlat', 'zamanlayıcı kur', 'sayaç kur'])}",
+                                                    {"minutes": m}))(_c_min(rng))),
+            ("timer.start", lambda rng: (lambda m, lb: (f"{lb} için {m} dakika {rng.choice(['zamanlayıcı kur', 'sayaç kur', 'geri sayım başlat'])}",
+                                                        {"minutes": m, "label": lb}))(_c_min(rng), _c_text(rng, TIMER_LABELS + ["toplantı hazırlığı"], 1, 2))),
+            ("reminder.set", lambda rng: (lambda m, x: (f"{m} dakika sonra {x} diye haber ver", {"at": f"+{m}m", "text": x}))(_c_min(rng), _c_rem(rng))),
+            ("reminder.set", lambda rng: (lambda tt, x: (f"{x} için {tt.tr} hatırlatıcı kur", {"at": tt.when, "text": x}))(t(rng), _c_rem(rng))),
+        ],
+        "takvim": [
+            ("calendar.list", lambda rng: (lambda d: (f"{d[0]} boş muyum, takvimime bak", {"day": d[1]}))(_c_day(rng))),
+            ("calendar.list", lambda rng: (lambda d: (f"{d[0]} meşgul müyüm", {"day": d[1]}))(_c_day(rng))),
+            ("calendar.list", lambda rng: (lambda d: (f"{d[0]} boş muyum", {"day": d[1]}))(_c_day(rng))),
+            ("calendar.add", lambda rng: (lambda tt, x: (f"{tt.tr} {x} takvime ekle", {"title": x, "start": tt.when}))(tc(rng), _c_ev(rng))),
+            ("calendar.add", lambda rng: (lambda tt, x: (f"ajandaya ekle, {tt.tr} {x}", {"title": x, "start": tt.when}))(tc(rng), _c_ev(rng))),
+            ("calendar.add", lambda rng: (lambda tt, x: (f"takvime ekle: {tt.tr} {x}", {"title": x, "start": tt.when}))(tc(rng), _c_ev(rng))),
+        ],
+        "anımsat/ajanda": [
+            ("reminder.set", lambda rng: (lambda tt, x: (f"anımsat: {x}, {tt.tr}", {"at": tt.when, "text": x}))(t(rng), _c_rem(rng))),
+            ("reminder.set", lambda rng: (lambda tt, x: (f"bildir, {tt.tr} {x}", {"at": tt.when, "text": x}))(t(rng), _c_rem(rng))),
+            ("reminder.set", lambda rng: (lambda tt, x: (f"hatırlat, {tt.tr} {x}", {"at": tt.when, "text": x}))(t(rng), _c_rem(rng))),
+            ("calendar.add", lambda rng: (lambda tt, x: (f"ajandaya ekle: {x}, {tt.tr}", {"title": x, "start": tt.when}))(tc(rng), _c_ev(rng))),
+            ("calendar.add", lambda rng: (lambda tt, x: (f"takvime ekle, {tt.tr} {x}", {"title": x, "start": tt.when}))(tc(rng), _c_ev(rng))),
+        ],
+        "hakkında": [
+            ("research.start", lambda rng: (lambda x: (f"{x} hakkında neler bulabilirsin", {"topic": x}))(_c_topic(rng))),
+            ("research.start", lambda rng: (lambda x: (f"{x} hakkında ne bulabileceğine bak", {"topic": x}))(_c_topic(rng))),
+            ("memory.recall", lambda rng: ("hakkımda ne biliyorsun", {})),
+            ("memory.recall", lambda rng: ("hakkımda neler biliyorsun", {})),
+            ("memory.recall", lambda rng: (lambda q: (f"{q} hakkında ne biliyorsun", {"query": q}))(rng.choice(_split(RECALL_TOPICS, "train")))),
+        ],
+        "neler yapabilir": [
+            ("help", lambda rng: ("seninle neler yapabilirim", {})),
+            ("help", lambda rng: ("seninle ne yapabilirim", {})),
+            ("help", lambda rng: ("neler yapabilirsin", {})),
+            ("memory.recall", lambda rng: ("benim hakkımda neler biliyorsun", {})),
+            ("memory.recall", lambda rng: ("beni ne kadar tanıyorsun", {})),
+        ],
+        "görsel": [
+            ("image.generate", lambda rng: (lambda x: (f"çiz: {x}", {"prompt": x}))(_c_prompt(rng))),
+            ("image.generate", lambda rng: (lambda x: (f"{x} temalı bir görsel hazırla", {"prompt": x}))(_c_prompt(rng))),
+            ("image.generate", lambda rng: (lambda x: (f"{x} temalı bir resim çiz", {"prompt": x}))(_c_prompt(rng))),
+            ("note.write", lambda rng: (lambda x: (f"not al: {x}", {"text": x}))(_c_prompt(rng))),
+            ("image.analyze", lambda rng: (lambda q: (f"görsele bak: {q}", {"uri": ATTACHED, "question": q}))(_c_q(rng))),
+            ("image.analyze", lambda rng: ("resimdeki yazıyı oku", {"uri": ATTACHED})),
+            ("image.analyze", lambda rng: ("görseldeki yazıyı oku", {"uri": ATTACHED})),
+            ("ask", lambda rng: (lambda q: (f"soru: {q}", {"question": q}))(_c_q(rng))),
+            ("ask", lambda rng: (lambda q: (f"{q}?", {"question": q}))(_c_q(rng))),
+        ],
+    }
+
+
+CONTRAST_GROUPS = _contrast_groups()
+
+
+def contrast_example(rng: random.Random) -> tuple[str, str, dict]:
+    """(komut, cümle, argümanlar): önce grup, sonra gruptaki bir üye (karşıt komutlar eşit sıklıkta görülsün)."""
+    group = CONTRAST_GROUPS[rng.choice(sorted(CONTRAST_GROUPS))]
+    cmd, gen = rng.choice(group)
+    tr, args = gen(rng)
+    return cmd, tr, args
 
 
 def grammar_example(rng: random.Random, cmd: str, split: str) -> tuple[str, dict]:
