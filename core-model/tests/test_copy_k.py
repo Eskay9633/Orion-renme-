@@ -1,5 +1,7 @@
 """Mastar işaretçisi '+k' çözümü: yalnızca -me/-ma ile biten aralığa 'k' eklenir.
 Aynı örnekler Kotlin'de: orion-core/src/test/kotlin/dev/orion/core/CopyDecodeTest.kt (eşlik)."""
+import pytest
+
 from orion_core import SHARED
 from orion_core.bpe import BPE
 from orion_core.copy import decode_output, find_span
@@ -22,6 +24,8 @@ def _ids(bpe, src_ids, span, k):
     return bpe.encode('{"text":"') + [base + i, base + j] + bpe.encode(('k' if k else '') + '"}')
 
 
+# Telefondaki modelin tokenizer'ı yalnızca işlem deposunda var (halka açık gelişim deposuna eşitlenmez)
+@pytest.mark.skipif(not (SHARED / "core-model" / "tokenizer.json").exists(), reason="tokenizer.json yok (gelişim deposu)")
 def test_infinitive_k_only_after_me_ma():
     bpe = BPE.load(SHARED / "core-model" / "tokenizer.json")
     for src, span, k, want in CASES:
