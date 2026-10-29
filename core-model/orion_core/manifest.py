@@ -37,6 +37,9 @@ def write_manifest(export_dir: Path, run_dir: Path | None, evaluate: bool = True
             "t2c_iid_valid": round(res["test_iid"]["valid"], 4), "plan_exact": round(res["plan"]["exact"], 4),
             "ans_exact": round(res["ans"]["exact"], 4),
             "handwritten_exact": round(res.get("handwritten", {}).get("exact", 0.0), 4),
+            # Hangi elle yazılmış kümede ölçüldü: içe aktarıcı yalnızca AYNI kümedeki sayıları karşılaştırır.
+            "handwritten_n": res.get("handwritten", {}).get("n", 0),
+            "handwritten_set_sha256": res.get("handwritten", {}).get("set_sha256"),
             "legacy_ood_exact": round(res.get("legacy_ood", {}).get("exact", 0.0), 4),
             "gate_passed": not fails, "gate_fails": fails,
             "maturity": "olgun" if not fails else "gelişiyor",

@@ -1,7 +1,7 @@
 """Gelişim deposundan (halka açık, Eskay9633/Orion-renme-) en yeni modelleri içe aktarır.
 
 İşlem deposunun CI'ında çalışır:
-  - komut-*  Release → shared/core-model/  (güvenlik tabanını geçmeli ve elle yazılmış cümlelerde gerilememeli)
+  - komut-*  Release → shared/core-model/  (güvenlik tabanını geçmeli ve AYNI elle yazılmış kümede gerilememeli)
   - sohbet-* Release → shared/chat-model/  (shared/chat-model-floor.json tabanını geçmeli; sınav ve kişilik puanı
     manifestten değil, aday indirilip burada chat.evaluate_release ile yeniden ölçülür. "hold": true iken alınmaz)
 Değişiklik olursa çıktı: changed=true (iş akışı sürümü artırıp APK'yı derletir).
@@ -87,18 +87,45 @@ def download(rel: dict, names: tuple[str, ...], dest: Path, token: str | None) -
             (dest / n).write_bytes(_get(assets[n], None))
 
 
-def komut_better(new: dict, cur: dict | None) -> tuple[bool, str]:
-    """Yeni komut modeli alınır mı? Güvenlik tabanı ayrıca evaluate ile sınanır; burada gerileme denetimi."""
+def same_handwritten_set(new: dict, cur: dict | None) -> bool:
+    """İki manifestin elle yazılmış puanı AYNI kümede mi ölçüldü? (Küme kimliği yoksa: bilinmiyor = hayır.)"""
+    a = (new or {}).get("eval", {}).get("handwritten_set_sha256")
+    b = (cur or {}).get("eval", {}).get("handwritten_set_sha256")
+    return bool(a) and a == b
+
+
+def komut_better(new: dict, cur: dict | None, local_hw: tuple[float, float] | None = None,
+                 local_hw_error: str | None = None) -> tuple[bool, str]:
+    """Yeni komut modeli alınır mı? Güvenlik tabanı ayrıca evaluate ile sınanır; burada gerileme denetimi.
+
+    Elle yazılmış cümlelerde gerileme kuralı toleranssız katıdır ve yalnızca AYNI kümede ölçülmüş iki sayıyla uygulanır:
+      - local_hw = (yeni, mevcut) verilmişse (içe aktarıcı İKİ modeli de bu depodaki güncel kümede yeniden ölçtü)
+        bunlar karşılaştırılır — kümeler aynı olsa da tercih edilen yol budur (109 cümle, ucuz);
+      - yerel ölçüm yoksa ve iki manifest aynı küme kimliğini (handwritten_set_sha256) taşıyorsa manifest sayıları;
+      - ikisi de yoksa KAPALI kalır: model alınmaz ("elle yazılmış küme ölçülemedi: <hata>"). Ölçülemeyen bir
+        gerileme "geçti" sayılmaz.
+    """
     if cur is None or "eval" not in cur:
         return True, "mevcut model yok"
     if new.get("sha256") == cur.get("sha256"):
         return False, "aynı model"
     n, c = new.get("eval", {}), cur["eval"]
-    if n.get("handwritten_exact", 0) + 1e-9 < c.get("handwritten_exact", 0):
-        return False, f"elle yazılmış cümlelerde geriledi ({n.get('handwritten_exact')} < {c.get('handwritten_exact')})"
+    if local_hw is not None:
+        ln, lc = local_hw
+        if ln + 1e-9 < lc:
+            return False, f"elle yazılmış cümlelerde geriledi (bu depoda aynı kümede: {ln:.4f} < {lc:.4f})"
+        hw_note = f"; elle yazılmış küme bu depoda yeniden ölçüldü ({ln:.4f} ≥ {lc:.4f})"
+    elif same_handwritten_set(new, cur):
+        if n.get("handwritten_exact", 0) + 1e-9 < c.get("handwritten_exact", 0):
+            return False, f"elle yazılmış cümlelerde geriledi ({n.get('handwritten_exact')} < {c.get('handwritten_exact')})"
+        hw_note = "; elle yazılmış küme aynı, manifest sayıları karşılaştırıldı"
+        if local_hw_error:
+            hw_note += f" (yerel ölçüm yapılamadı: {local_hw_error})"
+    else:
+        return False, f"elle yazılmış küme ölçülemedi: {local_hw_error or 'kümeler farklı ve bu depoda yeniden ölçülmedi'}"
     if n.get("t2c_ood_exact", 0) + 0.02 < c.get("t2c_ood_exact", 0):
         return False, "yeni cümle yapılarında geriledi"
-    return True, "daha iyi ya da eşit"
+    return True, "daha iyi ya da eşit" + hw_note
 
 
 def chat_cheap(m: dict, floor: dict, cur: dict | None) -> tuple[bool, str]:
@@ -130,9 +157,16 @@ def _local_eval(d: Path) -> dict:
     return evaluate_release(d)
 
 
-def run(token: str | None, evaluate_gate) -> dict:
+def _local_handwritten(d: Path) -> float:
+    """Bir komut modelini bu depodaki güncel elle yazılmış kümede ölçer (torch gerektirir; tembel içe aktarma)."""
+    from .evaluate import handwritten_eval
+    return handwritten_eval(d / "model.bin", d / "tokenizer.json")["exact"]
+
+
+def run(token: str | None, evaluate_gate, measure_handwritten=None) -> dict:
     report: dict = {"changed": False}
     core_dir, chat_dir = SHARED / "core-model", SHARED / "chat-model"
+    measure = measure_handwritten or _local_handwritten
     rel = latest("komut-", token)
     if rel:
         with tempfile.TemporaryDirectory() as td:
@@ -140,7 +174,18 @@ def run(token: str | None, evaluate_gate) -> dict:
             download(rel, KOMUT_FILES, t, token)
             new = json.loads((t / "manifest.json").read_text())
             cur = json.loads((core_dir / "manifest.json").read_text()) if (core_dir / "manifest.json").exists() else None
-            ok, why = komut_better(new, cur)
+            local_hw, local_err = None, None
+            if cur and "eval" in cur and new.get("sha256") != cur.get("sha256"):
+                # İki model de burada, güncel elle yazılmış kümede ölçülür (kümeler aynı olsa da: ucuz ve kesin).
+                try:
+                    if not (core_dir / "model.bin").exists():
+                        raise FileNotFoundError("mevcut model dosyası (model.bin) bu depoda yok")
+                    local_hw = (measure(t), measure(core_dir))
+                    report["elle_yerel"] = {"yeni": round(local_hw[0], 4), "mevcut": round(local_hw[1], 4)}
+                except Exception as e:  # noqa: BLE001 — ölçülemezse: aynı kümede manifest, değilse model ALINMAZ
+                    local_err = str(e) or type(e).__name__
+                    report["elle_yerel"] = {"hata": local_err}
+            ok, why = komut_better(new, cur, local_hw, local_err)
             if ok and not evaluate_gate(t):
                 ok, why = False, "güvenlik tabanını bu depoda geçemedi"
             report["komut"] = {"tag": rel["tag_name"], "alındı": ok, "neden": why}

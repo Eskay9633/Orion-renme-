@@ -7,6 +7,7 @@ uygulama önceki sürümle devam eder.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -33,6 +34,43 @@ def normalize_cmd(text: str) -> str | None:
         return canonical(validate_request({"v": 1, "id": "g", "cmd": obj["cmd"], "args": obj["args"]}))
     except (json.JSONDecodeError, ProtocolError, TypeError):
         return None
+
+
+HANDWRITTEN_PATH = SHARED / "core-model" / "handwritten-eval.jsonl"
+
+
+def load_handwritten(path: Path | None = None) -> list[dict]:
+    """Elle yazılmış değerlendirme kümesi (yalnızca ölçüm; eğitime girmez)."""
+    p = path or HANDWRITTEN_PATH
+    if not p.exists():
+        return []
+    return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+
+def handwritten_set_sha(rows: list[dict]) -> str:
+    """Kümenin kimliği: (cümle, beklenen çıktı) çiftlerinin sırasıyla özeti. Meta alanlar (tarih, kaynak) kimliği
+    değiştirmez; cümle ya da beklenen çıktı değişirse iki ölçüm artık aynı kümede yapılmamış sayılır."""
+    h = hashlib.sha256()
+    for r in rows:
+        h.update(json.dumps([r["src"], r["tgt"]], ensure_ascii=False).encode("utf-8") + b"\n")
+    return h.hexdigest()
+
+
+def handwritten_hits(rows: list[dict], outs: list[str]) -> list[bool]:
+    full = [canonical(validate_request({"v": 1, "id": "g", **json.loads(h["tgt"])})) for h in rows]
+    return [normalize_cmd(o) == f for o, f in zip(outs, full)]
+
+
+def handwritten_eval(model_bin: Path, tok: Path, rows: list[dict] | None = None, batch: int = 64) -> dict:
+    """Yalnızca elle yazılmış kümede tam eşleşme (içe aktarıcı iki modeli AYNI kümede karşılaştırsın diye)."""
+    rows = load_handwritten() if rows is None else rows
+    model = load_quantized(model_bin)
+    bpe = BPE.load(tok)
+    prompts = [prompt_ids(bpe, "t2c", h["src"]) for h in rows]
+    outs = model.greedy_batch(prompts, EOS, PAD, max_new=96, batch=batch)
+    outs = [decode_output(bpe, p[2:-1], o) for p, o in zip(prompts, outs)]
+    hits = handwritten_hits(rows, outs)
+    return {"exact": sum(hits) / len(rows) if rows else 0.0, "n": len(rows), "set_sha256": handwritten_set_sha(rows)}
 
 
 def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_plan: int = 200,
@@ -72,14 +110,12 @@ def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_p
         res[split] = {"exact": ok / len(exs), "valid": valid / len(exs), "n": len(exs),
                       "per_cmd": {k: round(v[0] / v[1], 3) for k, v in sorted(per_cmd.items())}, "fails": fails}
 
-    hw_path = SHARED / "core-model" / "handwritten-eval.jsonl"
-    if hw_path.exists():
-        hw = [json.loads(x) for x in hw_path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    hw = load_handwritten()
+    if hw:
         outs = gen("t2c", [h["src"] for h in hw], "handwritten")
-        full = [canonical(validate_request({"v": 1, "id": "g", **json.loads(h["tgt"])})) for h in hw]
-        hits = [normalize_cmd(o) == f for o, f in zip(outs, full)]
+        hits = handwritten_hits(hw, outs)
         res["handwritten_hits"] = hits
-        res["handwritten"] = {"exact": sum(hits) / len(hw), "n": len(hw),
+        res["handwritten"] = {"exact": sum(hits) / len(hw), "n": len(hw), "set_sha256": handwritten_set_sha(hw),
                               "fails": [{"src": h["src"], "want": h["tgt"], "got": o}
                                         for h, o, ok in zip(hw, outs, hits) if not ok][:15]}
 

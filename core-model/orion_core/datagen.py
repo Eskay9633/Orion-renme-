@@ -1497,6 +1497,8 @@ AGENT_NAMES = ["Mike", "Sophia", "Emma", "Luna", "David", "Jack", "Chloe", "Grac
 # Aynı anahtar sözcük, farklı komut. Yalnızca EĞİTİMDE üretilir; değerler eğitim havuzlarından, kalıplar
 # dilbilgisi motorunun eğitim parçalarıdır (ayrılmış i % 4 == 3 parçaları ve legacy_ood'un birebir kalıpları
 # kullanılmaz; bkz. test_datagen.test_contrast_frames_not_held_out).
+# Tur 18 denetimi: ayrılmış kalıpların yakın kopyası olan "yakın-ıska" grupları kaldırıldı (OOD ölçümünü şişiriyordu);
+# grup sayısı yine 7, oran 0.08 (bkz. test_datagen_tur18.test_new_contrast_templates_far_from_held_out).
 CONTRAST_FRAC = 0.08
 
 

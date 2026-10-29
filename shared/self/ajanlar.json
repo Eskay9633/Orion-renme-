@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "doc": "Orion'un 9 iç ajanının kimliği ve düşünme biçimi (TASLAK: kullanıcı onayına sunulur). Tek gerçek kaynak: uygulama bunu asset olarak paketler (self/ajanlar.json). Kimlikler shared/protocol/v1/commands.json 'agents' listesiyle aynıdır; 'principles' self/ilkeler.json kimlikleridir; 'commands' ajanın yapmasına izin verilen sabit komutlardır (komutun sahibi her zaman izinlidir); 'topics' soru yönlendirme anahtar sözcükleridir; 'helper_prefer' önce denenecek yardımcı sağlayıcılardır (providers.json kimlikleri). Ajanlar birbirleriyle sohbet etmez; ayrı model yoktur; hepsi aynı beyni kendi kimlik istemiyle kullanır.",
+  "doc": "Orion'un 9 iç ajanının kimliği ve düşünme biçimi (kullanıcı onayladı: 2026-10-29). Tek gerçek kaynak: uygulama bunu asset olarak paketler (self/ajanlar.json). Kimlikler shared/protocol/v1/commands.json 'agents' listesiyle aynıdır; 'principles' self/ilkeler.json kimlikleridir; 'commands' ajanın yapmasına izin verilen sabit komutlardır (komutun sahibi her zaman izinlidir); 'topics' soru yönlendirme anahtar sözcükleridir; 'helper_prefer' önce denenecek yardımcı sağlayıcılardır (providers.json kimlikleri). Ajanlar birbirleriyle sohbet etmez; ayrı model yoktur; hepsi aynı beyni kendi kimlik istemiyle kullanır.",
   "agents": [
     {
       "id": "mike",
