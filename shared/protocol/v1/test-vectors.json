@@ -281,6 +281,30 @@
    "input": "{\"v\":1,\"id\":\"h2\",\"cmd\":\"memory.recall\",\"args\":{\"query\":5}}",
    "ok": false,
    "err_code": "E_ARG_TYPE"
+  },
+  {
+   "name": "gelişim önerisi yardımcısız geçerli",
+   "input": "{\"v\":1,\"id\":\"g1\",\"cmd\":\"self.advise\",\"args\":{}}",
+   "ok": true,
+   "canonical": "{\"args\":{},\"cmd\":\"self.advise\",\"ctx\":{},\"id\":\"g1\",\"v\":1}"
+  },
+  {
+   "name": "gelişim önerisi Grok'a geçerli",
+   "input": "{\"v\":1,\"id\":\"g2\",\"cmd\":\"self.advise\",\"args\":{\"provider\":\"grok\"}}",
+   "ok": true,
+   "canonical": "{\"args\":{\"provider\":\"grok\"},\"cmd\":\"self.advise\",\"ctx\":{},\"id\":\"g2\",\"v\":1}"
+  },
+  {
+   "name": "gelişim önerisi tanımsız argüman",
+   "input": "{\"v\":1,\"id\":\"g3\",\"cmd\":\"self.advise\",\"args\":{\"kod\":\"rm -rf\"}}",
+   "ok": false,
+   "err_code": "E_ARG_UNKNOWN"
+  },
+  {
+   "name": "gelişim önerisi sağlayıcı çok kısa",
+   "input": "{\"v\":1,\"id\":\"g4\",\"cmd\":\"self.advise\",\"args\":{\"provider\":\"g\"}}",
+   "ok": false,
+   "err_code": "E_ARG_RANGE"
   }
  ],
  "responses": [

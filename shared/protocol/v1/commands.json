@@ -633,6 +633,20 @@
         }
       }
     },
+    "self.advise": {
+      "agent": "emma",
+      "doc": "Orion'u nasıl geliştirebiliriz: Orion kendini tanıtır (sürüm, beyin ölçümleri, yardımcılar, zayıf yanlar, ilkeler), yardımcı yapay zekalardan (en çok 2) neden ve nasıl içeren gelişim önerisi alır, birleştirip kaynaklarıyla açıklar. provider: kullanıcının adını verdiği yardımcı (önce o denenir). İnternet yoksa kendi bildiği zayıf yanlardan ve planlanan işlerden cevaplar.",
+      "needs_net": false,
+      "effect": "read",
+      "args": {
+        "provider": {
+          "type": "string",
+          "required": false,
+          "minLen": 2,
+          "maxLen": 40
+        }
+      }
+    },
     "help": {
       "agent": "mike",
       "doc": "Yapılabilecek işleri listeler.",

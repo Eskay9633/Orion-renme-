@@ -641,6 +641,33 @@ def help_templates() -> list[Gen]:
     return [(lambda p: (lambda rng, sp: (p, {})))(p) for p in phrases]
 
 
+SELF_ADVISE_PHRASES = [
+    "Orion'u nasıl geliştirebiliriz", "kendini nasıl geliştirirsin", "daha iyi olmak için ne yapmalısın", "Orion'un eksikleri neler",
+    "seni nasıl geliştirebiliriz", "Orion nasıl daha iyi olabilir", "eksiklerin neler", "zayıf yanların neler",
+    "nasıl daha iyi olabilirsin", "Orion için gelişim önerisi ver", "Orion gelişimi nasıl daha iyi olabilir",
+    "kendini nasıl iyileştirebilirsin", "Orion'un zayıf yanları neler", "daha iyi bir asistan olmak için ne yapmalısın",
+    "gelişim önerisi ver", "Orion nasıl gelişir",
+]
+
+
+def g_self_advise(rng, sp, hf, hv):
+    """Orion'u nasıl geliştirebiliriz: kendini tanıtıp yardımcılardan öneri ister; provider: adı verilen yardımcı."""
+    q = G.choose(rng, SELF_ADVISE_PHRASES, sp, hf or hv)
+    if rng.random() < 0.35:
+        tr, args = helper_ask(rng, sp, q, hf, hv)
+        return tr, {"provider": args["provider"]}
+    return q, {}
+
+
+def self_advise_templates() -> list[Gen]:
+    def fixed(i):
+        return lambda rng, sp: (SELF_ADVISE_PHRASES[i], {})
+    def helper(rng, sp):
+        tr, args = helper_ask(rng, sp, rng.choice(SELF_ADVISE_PHRASES[:8]))
+        return tr, {"provider": args["provider"]}
+    return [fixed(i) for i in range(0, 12)] + [helper, helper] + [fixed(i) for i in range(12, len(SELF_ADVISE_PHRASES))]
+
+
 TEMPLATES: dict[str, list[Gen]] = {
     "reminder.set": reminder_templates(),
     "reminder.list": reminder_list_templates(),
@@ -674,13 +701,14 @@ TEMPLATES: dict[str, list[Gen]] = {
     "app.open": [lambda rng, sp: g_app_open(rng, sp, False, False)] * 3,
     "app.list": [lambda rng, sp: g_app_list(rng, sp, False, False)] * 3,
     "memory.recall": [lambda rng, sp: g_memory_recall(rng, sp, False, False)] * 3,
+    "self.advise": self_advise_templates(),
 }
 
 # Komut ağırlıkları (gerçek kullanım tahmini; çok değerli olanlar daha sık)
 WEIGHTS = {
     "reminder.set": 6, "reminder.list": 1, "note.write": 4, "note.search": 3, "research.start": 3,
     "repo.audit": 2, "calendar.add": 4, "calendar.list": 2, "file.summarize": 1, "image.analyze": 2, "image.generate": 2, "card.propose": 3,
-    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "skill.run": 2, "skill.list": 1, "skill.learn": 2, "skill.record": 1, "agent.hire": 1, "mail.check": 2, "mail.send": 1, "self.status": 1, "app.open": 2, "app.list": 1, "memory.recall": 1, "help": 1,
+    "timer.start": 2, "provider.discover": 1, "health.check": 1, "memory.save": 2, "ask": 3, "calc.eval": 2, "text.translate": 2, "market.crypto": 2, "skill.run": 2, "skill.list": 1, "skill.learn": 2, "skill.record": 1, "agent.hire": 1, "mail.check": 2, "mail.send": 1, "self.status": 1, "app.open": 2, "app.list": 1, "memory.recall": 1, "self.advise": 1, "help": 1,
 }
 
 
@@ -774,6 +802,7 @@ PLANS = {
     "app.open": ["apps.query", "intent.build", "app.start"],
     "app.list": ["apps.query", "card.render"],
     "memory.recall": ["persona.read", "facts.recall", "card.render"],
+    "self.advise": ["self.describe", "net.check", "provider.ask", "provider.ask", "advice.merge", "card.render"],
     "help": ["commands.list"],
 }
 
@@ -1456,7 +1485,7 @@ GRAMMAR = {
     "ask": g_ask, "calc.eval": g_calc, "text.translate": g_translate, "help": g_help, "market.crypto": g_crypto,
     "skill.run": g_skill_run, "skill.list": g_skill_list, "skill.learn": g_skill_learn, "skill.record": g_skill_record,
     "agent.hire": g_agent_hire, "mail.check": g_mail_check, "mail.send": g_mail_send, "self.status": g_self_status, "app.open": g_app_open, "app.list": g_app_list,
-    "memory.recall": g_memory_recall,
+    "memory.recall": g_memory_recall, "self.advise": g_self_advise,
 }
 GRAMMAR_FRAC = 0.75
 
