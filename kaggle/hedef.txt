@@ -1,1 +1,1 @@
-orta 70000
+orta 76000 otomatik
