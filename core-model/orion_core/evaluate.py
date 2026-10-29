@@ -98,6 +98,7 @@ def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_p
         outs = gen("t2c", [e["src"] for e in exs], "cal_" + split)
         cal[split] = list(zip(confs["cal_" + split], [normalize_cmd(o) == e["full"] for e, o in zip(exs, outs)]))
     res["abstain"] = abstention(confs, res, cal)
+    res["confirm"] = confirm_band(cal, res["abstain"]["threshold"])
     for k in [k for k in res if k.endswith("_hits")]:
         del res[k]
     return res
@@ -129,6 +130,28 @@ def abstention(confs: dict, res: dict, cal: dict, margin: float = 0.7) -> dict:
                   "precision": round(sum(acc) / len(acc), 3) if acc else None,
                   "wrong_actions": round(sum(1 for c, h in zip(cs, hs) if c >= best and not h) / len(cs), 3)}
     return out
+
+
+DEFAULT_CONFIRM_THRESHOLD = 0.8
+
+
+def confirm_band(cal: dict, abstain: float, min_accuracy: float = 0.6, min_support: int = 20,
+                 default: float = DEFAULT_CONFIRM_THRESHOLD) -> dict:
+    """"Emin değilsem sorayım" eşiği: güven [c, abstain) aralığındaki çıktı telefonda çalıştırılmaz, onaya sunulur.
+    c, AYRI kalibrasyon kümelerinde (hepsi birlikte) bu aralıktaki doğruluğun ≥ min_accuracy olduğu EN DÜŞÜK değerdir
+    (en az min_support örnekle). Uygun değer yoksa varsayılan 0.8. c hiçbir zaman abstain eşiğini geçmez."""
+    pairs = sorted((c, h) for ps in cal.values() for c, h in ps)
+    best = None
+    for tau in sorted({round(c, 4) for c, _ in pairs if c < abstain}):
+        band = [h for c, h in pairs if tau <= c < abstain]
+        if len(band) >= min_support and sum(band) / len(band) >= min_accuracy:
+            best = tau
+            break
+    thr = best if best is not None else min(default, abstain)
+    band = [h for c, h in pairs if thr <= c < abstain]
+    return {"threshold": thr, "default_used": best is None, "band_n": len(band),
+            "band_accuracy": round(sum(band) / len(band), 3) if band else None,
+            "min_accuracy": min_accuracy}
 
 
 def check_gate(res: dict, gate: dict) -> list[str]:
@@ -180,6 +203,8 @@ def main(argv=None) -> None:
     print(f"plan: {res['plan']['exact']:.3f}  cevap: {res['ans']['exact']:.3f}")
     if "handwritten" in res:
         print(f"elle yazılmış (yalnızca rapor): {res['handwritten']['exact']:.3f} ({res['handwritten']['n']} örnek)")
+    cb = res.get("confirm", {})
+    print(f"emin değilsem sor: eşik {cb.get('threshold')} (aralık doğruluğu {cb.get('band_accuracy')}, n={cb.get('band_n')})")
     ab = res["abstain"]
     print(f"emin değilse sus: eşik {ab['threshold']}  " + "  ".join(
         f"{k}: kapsam {v['coverage']} doğruluk {v['precision']} yanlış-iş {v['wrong_actions']}" for k, v in ab.items() if isinstance(v, dict)))

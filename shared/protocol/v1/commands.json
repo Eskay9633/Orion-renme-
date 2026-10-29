@@ -18,6 +18,7 @@
       "agent": "grace",
       "doc": "Hatırlatıcı kurar.",
       "needs_net": false,
+      "effect": "write-timed",
       "args": {
         "at": {
           "type": "when",
@@ -44,12 +45,14 @@
       "agent": "grace",
       "doc": "Bekleyen hatırlatıcıları listeler.",
       "needs_net": false,
+      "effect": "read",
       "args": {}
     },
     "note.write": {
       "agent": "chloe",
       "doc": "Not yazar. Gizli bilgi içeren not reddedilir (E_SECRET).",
       "needs_net": false,
+      "effect": "write-easy",
       "args": {
         "text": {
           "type": "string",
@@ -68,6 +71,7 @@
       "agent": "chloe",
       "doc": "Notlarda arar.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "query": {
           "type": "string",
@@ -87,6 +91,7 @@
       "agent": "sophia",
       "doc": "Araştırma görevi başlatır. Bilgi gerektirir: sağlayıcıya araç çağrısı olarak gider.",
       "needs_net": true,
+      "effect": "read",
       "args": {
         "topic": {
           "type": "string",
@@ -109,6 +114,7 @@
       "agent": "jack",
       "doc": "GitHub deposunu salt-okunur denetler (son commit, CI durumu, açık konular).",
       "needs_net": true,
+      "effect": "read",
       "args": {
         "repo": {
           "type": "repo",
@@ -129,6 +135,7 @@
       "agent": "grace",
       "doc": "Takvime etkinlik ekler.",
       "needs_net": false,
+      "effect": "write-timed",
       "args": {
         "title": {
           "type": "string",
@@ -156,6 +163,7 @@
       "agent": "grace",
       "doc": "Bir günün etkinliklerini listeler.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "day": {
           "type": "date",
@@ -167,6 +175,7 @@
       "agent": "chloe",
       "doc": "Dosya özeti çıkarır. Çevrimdışıyken yerel özetleyici kullanılır.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "uri": {
           "type": "uri",
@@ -187,6 +196,7 @@
       "agent": "jack",
       "doc": "Fotoğraf ya da ekran görüntüsünü okur (telefonda OCR), soruyu cevaplar ya da gördüğü sorunu çözmeye çalışır. İnternet yoksa kendi beyniyle çalışır.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "uri": {
           "type": "uri",
@@ -202,6 +212,7 @@
       "agent": "luna",
       "doc": "Tarife göre resim oluşturur (yardımcı sağlayıcı gerekir; anahtarsız seçenek: Pollinations).",
       "needs_net": true,
+      "effect": "read",
       "args": {
         "prompt": {
           "type": "string",
@@ -224,6 +235,7 @@
       "agent": "luna",
       "doc": "Ana ekrana kart önerir. Yalnızca sabit 8 bileşen; serbest kod yok. Kullanıcı onaylar.",
       "needs_net": false,
+      "effect": "proposal",
       "args": {
         "kind": {
           "type": "enum",
@@ -281,6 +293,7 @@
       "agent": "grace",
       "doc": "Geri sayım başlatır.",
       "needs_net": false,
+      "effect": "write-timed",
       "args": {
         "minutes": {
           "type": "int",
@@ -298,6 +311,7 @@
       "agent": "sophia",
       "doc": "Yeni ücretsiz yapay zeka sağlayıcısı arar. Bulunanlar KAPALI ve 'doğrulanmadı' olarak öneri listesine düşer; kullanıcı onaylamadan kullanılmaz.",
       "needs_net": true,
+      "effect": "read",
       "args": {
         "need": {
           "type": "string",
@@ -309,6 +323,7 @@
       "agent": "maya",
       "doc": "Telefon sağlığı ön kontrolü (pil, boş alan, son yedek).",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "purpose": {
           "type": "enum",
@@ -324,6 +339,7 @@
       "agent": "mike",
       "doc": "Kalıcı hafızaya kayıt ÖNERİR; kullanıcı onayı olmadan kaydedilmez.",
       "needs_net": false,
+      "effect": "proposal",
       "args": {
         "kind": {
           "type": "enum",
@@ -346,6 +362,7 @@
       "agent": "mike",
       "doc": "Genel soru-cevap ve sohbet. Önce Orion'un kendi beyni (telefondaki model), gerekirse yardımcılar. provider: kullanıcı belirli bir yardımcıyı istediyse (\"bunu Grok'a sor\") sağlayıcı kimliği (providers.json id); o yardımcı önce denenir, kullanılamıyorsa diğerlerine geçilir.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "question": {
           "type": "string",
@@ -364,6 +381,7 @@
       "agent": "chloe",
       "doc": "Hesap makinesi: dört işlem, üs, parantez, yüzde. İnternetsiz.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "expr": {
           "type": "string",
@@ -377,6 +395,7 @@
       "agent": "emma",
       "doc": "Metni başka dile çevirir (önce kendi beyni).",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "text": {
           "type": "string",
@@ -404,6 +423,7 @@
       "agent": "chloe",
       "doc": "Kripto para piyasası: genel durum (en büyük 10) ya da tek bir coinin fiyatı ve 24 saatlik değişimi. CoinGecko (anahtarsız; şartları doğrulanmadı).",
       "needs_net": true,
+      "effect": "read",
       "args": {
         "coin": {
           "type": "string",
@@ -426,6 +446,7 @@
       "agent": "grace",
       "doc": "Orion'a verilen e-posta hesabındaki son iletileri okur (kimden, konu, kısa özet). Hesap telefondaki kasada.",
       "needs_net": true,
+      "effect": "read",
       "args": {
         "count": {
           "type": "int",
@@ -451,6 +472,7 @@
       "agent": "grace",
       "doc": "E-posta taslağı hazırlar; kullanıcı onaylamadan ASLA gönderilmez.",
       "needs_net": true,
+      "effect": "proposal",
       "args": {
         "to": {
           "type": "string",
@@ -476,12 +498,14 @@
       "agent": "david",
       "doc": "Orion'un gelişim durumu: gelişim deposundaki yeni beyin sürümleri (komut, sohbet) ve uygulama güncellemesi; yeni sürüm varsa kurulum önerisi.",
       "needs_net": true,
+      "effect": "read",
       "args": {}
     },
     "app.open": {
       "agent": "jack",
       "doc": "Telefondaki bir uygulamayı açar; bilinen uygulamalarda (YouTube, Spotify, Haritalar, Google, Play Store, GitHub, Vikipedi) içinde arama yapar. Gönderme/arama gibi son adımı kullanıcı yapar.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "name": {
           "type": "string",
@@ -501,12 +525,14 @@
       "agent": "jack",
       "doc": "Telefonda kurulu uygulamaları listeler (Orion'un kullanabileceği araçlar).",
       "needs_net": false,
+      "effect": "read",
       "args": {}
     },
     "skill.run": {
       "agent": "mike",
       "doc": "Kayıtlı bir beceriyi çalıştırır (adım dizisi: sabit komutlar, onaylı araçlar, ajan görevleri).",
       "needs_net": false,
+      "effect": "write-chain",
       "args": {
         "name": {
           "type": "string",
@@ -526,12 +552,14 @@
       "agent": "mike",
       "doc": "Becerileri, araçları ve dış ajanları listeler.",
       "needs_net": false,
+      "effect": "read",
       "args": {}
     },
     "skill.learn": {
       "agent": "david",
       "doc": "Hedef için yeni beceri tasarlar (gerekirse araç ve dış ajan önerir); kullanıcı onaylayınca kaydedilir.",
       "needs_net": true,
+      "effect": "proposal",
       "args": {
         "goal": {
           "type": "string",
@@ -545,6 +573,7 @@
       "agent": "mike",
       "doc": "Son yapılan işleri (komutları) adlandırılmış beceri olarak kaydeder (göstererek öğretme).",
       "needs_net": false,
+      "effect": "write-chain",
       "args": {
         "name": {
           "type": "string",
@@ -565,6 +594,7 @@
       "agent": "mike",
       "doc": "Bir iç ajana yardımcı dış ajan (rolü olan yapay zeka) ekler.",
       "needs_net": false,
+      "effect": "write-chain",
       "args": {
         "role": {
           "type": "string",
@@ -593,6 +623,7 @@
       "agent": "mike",
       "doc": "Katmanlı hafızayı gösterir: Orion'un kullanıcı hakkında bildikleri (kişilik özeti, onaylı bilgiler, alışkanlıklar). query verilirse yalnızca ilgili bilgiler.",
       "needs_net": false,
+      "effect": "read",
       "args": {
         "query": {
           "type": "string",
@@ -606,6 +637,7 @@
       "agent": "mike",
       "doc": "Yapılabilecek işleri listeler.",
       "needs_net": false,
+      "effect": "read",
       "args": {}
     }
   },
@@ -646,5 +678,12 @@
     "E_NO_BRAIN": "Cevap verecek beyin (telefon modeli ya da yardımcı) yok",
     "E_BUSY": "Beyin meşgul ya da süre doldu",
     "E_INTERNAL": "İç hata"
+  },
+  "effects": {
+    "read": "yalnızca okur/cevaplar; hiç onay sorulmaz",
+    "write-timed": "zamanlı yazma (hatırlatıcı, takvim, zamanlayıcı); emin değilse sorulur",
+    "write-chain": "zincir/ajan çalıştırır; emin değilse daha sıkı sorulur",
+    "write-easy": "geri alınması kolay yazma (not); yalnızca çok düşük güvende sorulur",
+    "proposal": "zaten öneri/onay akışı (e-posta, hafıza, kart, beceri); ayrıca sorulmaz"
   }
 }

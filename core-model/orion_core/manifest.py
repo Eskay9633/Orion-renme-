@@ -43,6 +43,8 @@ def write_manifest(export_dir: Path, run_dir: Path | None, evaluate: bool = True
         }
         # Telefon: bu güvenin altındaki çıktı "anlamadım" sayılır (yanlış iş yapmasın).
         m["abstain_threshold"] = res["abstain"]["threshold"]
+        # Telefon: güven [confirm_threshold, abstain_threshold) → yan etkili işte çalıştırmadan önce sorulur.
+        m["confirm_threshold"] = res.get("confirm", {}).get("threshold", 0.8)
         (export_dir / "eval.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     (export_dir / "manifest.json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
     return m
