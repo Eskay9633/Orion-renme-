@@ -1,4 +1,4 @@
-"""Gelişim deposundan (halka açık, Eskay9633/Orion-renme-) en yeni modelleri içe aktarır.
+"""Gelişim deposundan (halka açık, Eskay9633/orion-egitim-kampi) en yeni modelleri içe aktarır.
 
 İşlem deposunun CI'ında çalışır:
   - komut-*  Release → shared/core-model/  (güvenlik tabanını geçmeli ve AYNI elle yazılmış kümede gerilememeli)
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from . import SHARED
 
-REPO = "Eskay9633/Orion-renme-"
+REPO = "Eskay9633/orion-egitim-kampi"
 KOMUT_FILES = ("model.bin", "tokenizer.json", "parity.json", "manifest.json")
 CHAT_FILES = ("model.bin", "tokenizer.json", "parity.json", "manifest.json", "samples.json")
 

@@ -12,8 +12,8 @@ SIZE = "__SIZE__"
 STEPS = "__STEPS__"
 BATCH = "__BATCH__"
 BUDGET_MIN = "__BUDGET__"
-REPO = "https://github.com/Eskay9633/Orion-renme-.git"
-CKPT_URL = "https://github.com/Eskay9633/Orion-renme-/releases/download/kaggle-devam-__SIZE__/ckpt.pt"
+REPO = "https://github.com/Eskay9633/orion-egitim-kampi.git"
+CKPT_URL = "https://github.com/Eskay9633/orion-egitim-kampi/releases/download/kaggle-devam-__SIZE__/ckpt.pt"
 TOK_URL = "__TOK__"  # önceki eğitimin tokenizer'ı (devam ederken aynısı şart); boşsa ilk eğitim
 EXTRA_URL = "__EXTRA__"  # isteğe bağlı çeviri verisi (en son ceviri-* Release'indeki ceviri.jsonl.gz); boşsa yok
 # İNCE AYAR (yalnız ek veri varsa): diyalog payı 0.75, taban lr 1.5e-4. lr_at kosinüs takvimi toplam hedef adıma
