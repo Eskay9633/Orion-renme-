@@ -1,0 +1,19 @@
+# id = 0
+# text = alarmlarımı göster
+# intent = alarm/show_alarms
+1	alarmlarımı	alarm/show_alarms	O
+2	göster	alarm/show_alarms	O
+
+# id = 1
+# text = alarmı iptal et
+# intent = alarm/cancel_alarm
+1	alarmı	alarm/cancel_alarm	O
+2	iptal	alarm/cancel_alarm	O
+3	et	alarm/cancel_alarm	O
+
+# id = 2
+# text = sesi aç
+# intent = weather/find
+1	sesi	weather/find	O
+2	aç	weather/find	O
+

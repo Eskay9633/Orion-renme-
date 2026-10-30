@@ -751,8 +751,12 @@ def t2c_example(rng: random.Random, split: str = "train", noise: bool = True) ->
 def _t2c_example_once(rng: random.Random, split: str, noise: bool) -> dict:
     cmds = list(WEIGHTS)
     cmd = rng.choices(cmds, weights=[WEIGHTS[c] for c in cmds])[0]
-    if split == "train" and rng.random() < CONTRAST_FRAC:
+    # Tek çekiliş yalnızca eğitimde (eskisi gibi): test/kalibrasyon kümelerinin rastgele akışı değişmez.
+    r_train = rng.random() if split == "train" else 1.0
+    if r_train < CONTRAST_FRAC:
         cmd, tr, args = contrast_example(rng)
+    elif r_train < CONTRAST_FRAC + IDENTITY_FRAC:
+        cmd, tr, args = identity_example(rng)
     elif split == "legacy_ood":
         tr, args = rng.choice(_templates_for(cmd, "test_ood"))(rng, "test_ood")
     elif split == "test_ood" or rng.random() < GRAMMAR_FRAC:
@@ -1621,6 +1625,31 @@ def contrast_example(rng: random.Random) -> tuple[str, str, dict]:
     cmd, gen = rng.choice(group)
     tr, args = gen(rng)
     return cmd, tr, args
+
+
+# --------------------------------------------------------------------------- kimlik soruları (yalnızca eğitim)
+# "Sen kimsin / neden özelsin / kime aitsin / seni kim yaptı / mutlu musun": Kotlin kural çevirici bunları serbest soruya
+# (ask {question}) çevirir; yürütücü kimlik dosyasından (shared/self/orion.json, IdentityTopic) cevaplar. "Beni tanıyor
+# musun" ise Orion'un kimliği değil, sahibini tanımasıdır → memory.recall. Yalnızca EĞİTİM akışına girer (test kümeleri
+# ve translator-eval.jsonl değişmez: test_datagen_tur18.SPLIT_SHA).
+IDENTITY_FRAC = 0.01
+IDENTITY_ASK = [
+    "sen kimsin", "kimsin sen", "sen nesin", "kendini tanıt", "kendini tanıtır mısın", "adın ne", "senin adın ne",
+    "neden özelsin", "sen neden bu kadar özelsin", "seni özel kılan ne", "senin farkın ne",
+    "kime aitsin", "sen kime aitsin", "sahibin kim", "kimin asistanısın",
+    "seni kim yaptı", "seni kim yarattı", "seni kim oluşturdu", "yaratıcın kim",
+    "mutlu musun", "sen mutlu musun", "seni ne mutlu eder", "seni ne sevindirir",
+    "hikayeni anlat", "senin hikayen ne",
+]
+IDENTITY_RECALL = ["beni tanıyor musun", "beni ne kadar tanıyorsun", "beni hatırlıyor musun"]
+
+
+def identity_example(rng: random.Random) -> tuple[str, str, dict]:
+    """(komut, cümle, argümanlar): kimlik sorusu → ask {question}; sahibini tanıma → memory.recall."""
+    if rng.random() < 0.15:
+        return "memory.recall", rng.choice(IDENTITY_RECALL), {}
+    q = rng.choice(IDENTITY_ASK)
+    return "ask", q + rng.choice(["", "?"]), {"question": q}
 
 
 def grammar_example(rng: random.Random, cmd: str, split: str) -> tuple[str, dict]:

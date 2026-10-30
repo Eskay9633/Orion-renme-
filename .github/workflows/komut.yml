@@ -17,6 +17,7 @@ on:
       - 'core-model/orion_core/train.py'
       - 'core-model/orion_core/bpe.py'
       - 'core-model/orion_core/copy.py'
+      - 'core-model/orion_core/massive.py'
       - 'shared/protocol/**'
 
 permissions:
@@ -42,17 +43,22 @@ jobs:
       - name: Testler
         working-directory: core-model
         run: python -m pytest -q tests
+      # Gerçek Türkçe cümleler: MASSIVE 1.1 tr-TR (CC BY 4.0) eğitim + massive_tr, xSID 0.6 tr (CC BY-SA 4.0) xsid_tr.
+      # Adresler ve sha256 orion_core/massive.py içinde sabit; indirme ya da özet tutmazsa iş DURUR (sessiz geri dönüş yok).
+      - name: Dış veri (MASSIVE + xSID)
+        working-directory: core-model
+        run: python -m orion_core.massive prepare --out work/ext --download
       - name: Eğit
         working-directory: core-model
-        run: python -m orion_core.train --out work/run --steps ${{ inputs.steps || '6000' }} --time-budget-min 240
+        run: python -m orion_core.train --out work/run --steps ${{ inputs.steps || '6000' }} --time-budget-min 240 --ext-data work/ext
       - name: Dışa aktar + manifest
         working-directory: core-model
         run: |
           python -m orion_core.export --run work/run --out work/export
-          python -m orion_core.manifest --dir work/export --run work/run
+          python -m orion_core.manifest --dir work/export --run work/run --ext-data work/ext
       - name: Güvenlik tabanı (yanlış iş yapan model yayınlanmaz)
         working-directory: core-model
-        run: python -m orion_core.evaluate --model work/export --gate
+        run: python -m orion_core.evaluate --model work/export --gate --ext-data work/ext
       - name: Release olarak yayınla
         env:
           GH_TOKEN: ${{ github.token }}
@@ -60,5 +66,6 @@ jobs:
           TAG="komut-$(date -u +%Y%m%d-%H%M)"
           NOTES=$(python -c "import json;m=json.load(open('core-model/work/export/manifest.json'));print(json.dumps(m['eval'],ensure_ascii=False))")
           cd core-model/work/export
-          gh release create "$TAG" model.bin tokenizer.json parity.json manifest.json eval.json \
+          cp ../../../shared/core-model/DIS-VERI.md .
+          gh release create "$TAG" model.bin tokenizer.json parity.json manifest.json eval.json DIS-VERI.md \
             --target "$GITHUB_SHA" --title "Komut beyni $TAG" --notes "$NOTES"

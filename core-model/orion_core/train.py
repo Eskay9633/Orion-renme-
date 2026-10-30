@@ -62,19 +62,26 @@ SEED_SET = SHARED / "core-model" / "seed-train.jsonl"
 
 class Stream:
     def __init__(self, bpe: BPE, ctx: int, seed: int, distilled: list[dict], distill_frac: float,
-                 seed_rows: list[dict] | None = None, seed_frac: float = 0.03):
+                 seed_rows: list[dict] | None = None, seed_frac: float = 0.03,
+                 ext_rows: list[dict] | None = None, ext_frac: float = 0.0):
         self.bpe, self.ctx = bpe, ctx
         self.rng = random.Random(seed)
         self.distilled = distilled
         self.distill_frac = distill_frac if distilled else 0.0
         self.seed_rows = seed_rows or []
         self.seed_frac = seed_frac if self.seed_rows else 0.0
+        # Gerçek Türkçe cümleler (MASSIVE train; massive.py). Yoksa akış eskisiyle birebir aynı (rng tüketilmez).
+        from .massive import ExtSampler
+        self.ext = ExtSampler(ext_rows or [])
+        self.ext_frac = ext_frac if self.ext else 0.0
 
     def example(self) -> dict:
         if self.seed_frac and self.rng.random() < self.seed_frac:
             return self.rng.choice(self.seed_rows)
         if self.distill_frac and self.rng.random() < self.distill_frac:
             return self.rng.choice(self.distilled)
+        if self.ext_frac and self.rng.random() < self.ext_frac:
+            return self.ext.sample(self.rng)
         r = self.rng.random()
         if r < 0.8:
             return datagen.t2c_example(self.rng, "train")
@@ -100,10 +107,10 @@ class Stream:
         return x, y
 
 
-def train_tokenizer(out: Path, vocab_size: int, seed: int, n: int = 60000) -> BPE:
+def train_tokenizer(out: Path, vocab_size: int, seed: int, n: int = 60000, extra_texts: list[str] | None = None) -> BPE:
     from .lexicon import lexicon_sentences
     ex = datagen.generate(n, "train", seed=seed)
-    texts = [e["src"] for e in ex] + [e["tgt"] for e in ex] + lexicon_sentences(n // 2, seed)
+    texts = [e["src"] for e in ex] + [e["tgt"] for e in ex] + lexicon_sentences(n // 2, seed) + list(extra_texts or [])
     bpe = BPE.train(texts, vocab_size=vocab_size)
     bpe.save(out / "tokenizer.json")
     return bpe
@@ -138,6 +145,8 @@ def main(argv=None) -> None:
     ap.add_argument("--distilled", nargs="*", default=[], help="damıtılmış jsonl dosyaları")
     ap.add_argument("--distill-frac", type=float, default=0.2)
     ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--ext-data", help="massive.py prepare çıktısı (MASSIVE train); verilirse eksik/sızıntılı veri = hata")
+    ap.add_argument("--ext-frac", type=float, default=None, help="akıştaki dış veri payı (varsayılan massive.EXT_FRAC)")
     a = ap.parse_args(argv)
 
     if a.threads:
@@ -146,6 +155,11 @@ def main(argv=None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(a.seed)
 
+    ext_rows: list[dict] = []
+    if a.ext_data:
+        from . import massive
+        ext_rows = massive.load_train(Path(a.ext_data))  # dosya yoksa ya da değerlendirmeyle çakışırsa DataError
+        print(f"dış veri (MASSIVE tr-TR train): {len(ext_rows)} satır", flush=True)
     if a.tokenizer:
         bpe = BPE.load(Path(a.tokenizer))
         bpe.save(out / "tokenizer.json")
@@ -153,7 +167,7 @@ def main(argv=None) -> None:
         bpe = BPE.load(out / "tokenizer.json")
     else:
         print("tokenizer eğitiliyor...", flush=True)
-        bpe = train_tokenizer(out, a.vocab, a.seed)
+        bpe = train_tokenizer(out, a.vocab, a.seed, extra_texts=[r["src"] for r in ext_rows])
     print(f"tokenizer: {bpe.vocab_size} parça", flush=True)
 
     cfg = GptConfig(vocab_size=bpe.vocab_size + N_PTR, ctx=a.ctx, d_model=a.d_model, n_layer=a.n_layer,
@@ -185,7 +199,9 @@ def main(argv=None) -> None:
     if distilled:
         print(f"damıtılmış örnek: {len(distilled)}", flush=True)
     seed_rows = load_distilled([str(SEED_SET)]) if SEED_SET.exists() else []
-    stream = Stream(bpe, cfg.ctx, a.seed + step, distilled, a.distill_frac, seed_rows)
+    from .massive import EXT_FRAC
+    stream = Stream(bpe, cfg.ctx, a.seed + step, distilled, a.distill_frac, seed_rows,
+                    ext_rows=ext_rows, ext_frac=EXT_FRAC if a.ext_frac is None else a.ext_frac)
 
     t0 = time.time()
     budget = a.time_budget_min * 60
@@ -230,7 +246,8 @@ def main(argv=None) -> None:
             break
     save(final=step >= a.steps)
     (out / "status.json").write_text(json.dumps({"step": step, "target_steps": a.steps,
-                                                 "done": step >= a.steps, "loss": ema}), encoding="utf-8")
+                                                 "done": step >= a.steps, "loss": ema,
+                                                 "ext_rows": len(ext_rows), "ext_frac": stream.ext_frac}), encoding="utf-8")
     print(f"bitti: adım {step}/{a.steps}", flush=True)
 
 

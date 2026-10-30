@@ -1,0 +1,23 @@
+# id = 0
+# text = yarın sabah 9'da faturayı ödemeyi hatırlat
+# intent = reminder/set_reminder
+1	yarın	reminder/set_reminder	B-datetime
+2	sabah	reminder/set_reminder	I-datetime
+3	9'da	reminder/set_reminder	I-datetime
+4	faturayı	reminder/set_reminder	B-reminder/todo
+5	ödemeyi	reminder/set_reminder	I-reminder/todo
+6	hatırlat	reminder/set_reminder	O
+
+# id = 1
+# text = hava nasıl?
+# intent = weather/find
+1	hava	weather/find	O
+2	nasıl	weather/find	O
+3	?	weather/find	O
+
+# id = 2
+# text = şarkı çal
+# intent = PlayMusic
+1	şarkı	PlayMusic	O
+2	çal	PlayMusic	O
+

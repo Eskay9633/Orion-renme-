@@ -73,8 +73,11 @@ def handwritten_eval(model_bin: Path, tok: Path, rows: list[dict] | None = None,
     return {"exact": sum(hits) / len(rows) if rows else 0.0, "n": len(rows), "set_sha256": handwritten_set_sha(rows)}
 
 
+EXT_SETS = ("massive_tr", "xsid_tr")
+
+
 def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_plan: int = 200,
-             n_ans: int = 100, batch: int = 64) -> dict:
+             n_ans: int = 100, batch: int = 64, ext_dir: Path | None = None) -> dict:
     model = load_quantized(model_bin)
     bpe = BPE.load(tok)
 
@@ -119,6 +122,21 @@ def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_p
                               "fails": [{"src": h["src"], "want": h["tgt"], "got": o}
                                         for h, o, ok in zip(hw, outs, hits) if not ok][:15]}
 
+    # Gerçek Türkçe cümleler (MASSIVE dev+test, xSID valid+test): YALNIZCA RAPOR, kapı/taban eşiklerine girmez.
+    from . import massive
+    ext = massive.load_eval_sets(ext_dir)
+    ext_wrong: dict = {}
+    for name in EXT_SETS:
+        rows = ext.get(name)
+        if not rows:
+            res[name] = {"skipped": "hazırlanmadı (python -m orion_core.massive prepare)"}
+            continue
+        outs = gen("t2c", [r["src"] for r in rows], name)
+        sc = massive.score_ext(rows, outs, normalize_cmd)
+        res[name + "_hits"] = sc.pop("_hits")
+        ext_wrong[name] = sc.pop("_wrong")
+        res[name] = {**sc, "report_only": True}
+
     import random
     rng = random.Random(303)
     plans = [datagen.plan_example(rng, "test_iid") for _ in range(n_plan)]
@@ -135,6 +153,16 @@ def run_eval(model_bin: Path, tok: Path, n_iid: int = 600, n_ood: int = 400, n_p
         cal[split] = list(zip(confs["cal_" + split], [normalize_cmd(o) == e["full"] for e, o in zip(exs, outs)]))
     res["abstain"] = abstention(confs, res, cal)
     res["confirm"] = confirm_band(cal, res["abstain"]["threshold"])
+    # Dış kümelerde susma eşiğiyle: kapsam ve yanlış-iş (eşik altı = "anlamadım", iş yapılmaz)
+    thr = res["abstain"]["threshold"]
+    for name in EXT_SETS:
+        if name + "_hits" not in res:
+            continue
+        rows, cs, hs, ws = ext[name], confs[name], res[name + "_hits"], ext_wrong[name]
+        acc = [(h, w) for c, h, w in zip(cs, hs, ws) if c >= thr]
+        res[name]["at_abstain"] = {"coverage": round(len(acc) / len(rows), 3),
+                                   "precision": round(sum(h for h, _ in acc) / len(acc), 3) if acc else None,
+                                   "wrong_actions": round(sum(w for _, w in acc) / len(rows), 3)}
     for k in [k for k in res if k.endswith("_hits")]:
         del res[k]
     return res
@@ -224,11 +252,12 @@ def main(argv=None) -> None:
     ap.add_argument("--model", required=True, help="dışa aktarım klasörü (model.bin + tokenizer.json)")
     ap.add_argument("--gate", action="store_true", help="eşik altındaysa çıkış kodu 1")
     ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--ext-data", help="massive.py prepare çıktısı (massive_tr, xsid_tr; yalnızca rapor)")
     a = ap.parse_args(argv)
     d = Path(a.model)
     t0 = time.time()
     kw = dict(n_iid=150, n_ood=100, n_plan=60, n_ans=40) if a.quick else {}
-    res = run_eval(d / "model.bin", d / "tokenizer.json", **kw)
+    res = run_eval(d / "model.bin", d / "tokenizer.json", ext_dir=Path(a.ext_data) if a.ext_data else None, **kw)
     gate = json.loads(GATE_PATH.read_text(encoding="utf-8"))
     fails = check_gate(res, gate)
     res["gate"] = {"passed": not fails, "fails": fails, "thresholds": gate}
@@ -239,6 +268,15 @@ def main(argv=None) -> None:
     print(f"plan: {res['plan']['exact']:.3f}  cevap: {res['ans']['exact']:.3f}")
     if "handwritten" in res:
         print(f"elle yazılmış (yalnızca rapor): {res['handwritten']['exact']:.3f} ({res['handwritten']['n']} örnek)")
+    for name in EXT_SETS:
+        e = res.get(name, {})
+        if "exact" in e:
+            ab_ = e.get("at_abstain", {})
+            print(f"{name} (gerçek cümle, yalnızca rapor): tam {e['exact']:.3f} geçerli {e['valid']:.3f} "
+                  f"yanlış-iş {e['wrong_actions']:.3f} tür {e['per_kind']} n={e['n']}; susma eşiğinde kapsam "
+                  f"{ab_.get('coverage')} yanlış-iş {ab_.get('wrong_actions')}")
+        else:
+            print(f"{name}: atlandı ({e.get('skipped')})")
     cb = res.get("confirm", {})
     print(f"emin değilsem sor: eşik {cb.get('threshold')} (aralık doğruluğu {cb.get('band_accuracy')}, n={cb.get('band_n')})")
     ab = res["abstain"]
