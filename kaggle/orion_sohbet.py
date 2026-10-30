@@ -33,11 +33,16 @@ sh(sys.executable, "-m", "pip", "install", "-q", "pyarrow", "regex")
 os.chdir("/kaggle/working/src/core-model")
 data, out = "/kaggle/tmp/chat-data", "/kaggle/working/out"
 os.makedirs(out, exist_ok=True)
+# Kaggle'ın yeni görüntüsünde /kaggle/tmp hazır gelmiyor (29 Eki: tüm indirmeler FileNotFoundError verdi).
+os.makedirs("/kaggle/tmp", exist_ok=True)
 prev = "/kaggle/tmp/prev-ckpt.pt"
 try:
     urllib.request.urlretrieve(CKPT_URL, prev)
-    print("önceki checkpoint indirildi, devam edilecek", flush=True)
-except Exception as e:  # ilk oturum
+    print("ORION: önceki checkpoint indirildi, devam edilecek", flush=True)
+except Exception as e:
+    # Devam noktası varken (tokenizer adresi verilmiş) checkpoint inemezse sıfırdan eğitmek beyni bozar: dur.
+    if TOK_URL.startswith("http"):
+        raise SystemExit(f"ORION HATA: devam checkpoint'i indirilemedi: {e!r}")
     print("önceki checkpoint yok (ilk oturum):", e, flush=True)
     prev = ""
 tok = ""
