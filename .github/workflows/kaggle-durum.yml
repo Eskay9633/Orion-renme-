@@ -1,0 +1,36 @@
+name: kaggle-durum
+
+# Yalnızca OKUR: Kaggle sohbet oturumunun durumunu ve (bittiyse/hata verdiyse) günlüğünün önemli satırlarını yazar.
+# Hiçbir oturum başlatmaz, sonuç yayınlamaz. Tetik: kaggle/durum-istek.txt değişikliğini içeren bir push
+# (zamanlanmış kontrol gecikince durumu hemen görmek için).
+on:
+  push:
+    branches: [main]
+    paths: ['kaggle/durum-istek.txt']
+
+permissions:
+  contents: read
+
+env:
+  KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+  KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+  KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+
+jobs:
+  durum:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q kaggle
+      - name: Oturum durumu
+        run: |
+          read SIZE STEPS CEVIRI < kaggle/hedef.txt
+          KID="$KAGGLE_USERNAME/orion-sohbet-$SIZE"
+          echo "hedef: $SIZE $STEPS ${CEVIRI:-otomatik}"
+          STATUS=$(kaggle kernels status "$KID" 2>&1 | tr 'A-Z' 'a-z' || true); echo "$STATUS"
+          case "$STATUS" in
+            *running*|*queued*) echo "Oturum sürüyor." ;;
+            *) mkdir -p kout && kaggle kernels output "$KID" -p kout >/dev/null 2>&1 || true
+               python kaggle/gunluk.py kout || true ;;
+          esac
