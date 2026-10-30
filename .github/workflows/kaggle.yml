@@ -66,6 +66,13 @@ jobs:
           case "$STATUS" in
             *running*|*queued*) echo "go=false" >> "$GITHUB_OUTPUT"; echo "Oturum sürüyor." ;;
             *complete*) echo "go=collect" >> "$GITHUB_OUTPUT" ;;
+            *error*|*cancel*)
+              # Hata veren oturum: günlüğü göster; zamanlanmış çalışma KENDİLİĞİNDEN yeniden başlatmaz
+              # (aynı hata 2 saatte bir tekrar edip kotayı yemesin). Elle "Run workflow" yine başlatır.
+              mkdir -p kerr && kaggle kernels output "$KID" -p kerr >/dev/null 2>&1 || true
+              python kaggle/gunluk.py kerr || true
+              if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "go=start" >> "$GITHUB_OUTPUT"
+              else echo "go=false" >> "$GITHUB_OUTPUT"; echo "::warning::Kaggle oturumu hata verdi; günlük yukarıda. Yeniden başlatmak için elle çalıştır."; fi ;;
             *) echo "go=start" >> "$GITHUB_OUTPUT" ;;
           esac
       - name: Sonucu topla ve yayınla
@@ -73,20 +80,8 @@ jobs:
         id: col
         run: |
           mkdir -p kout && kaggle kernels output "${{ steps.st.outputs.kid }}" -p kout
-          # Oturum günlüğünden önemli satırlar (ORION işaretli, hata, çeviri/ek diyalog) — sessiz geri dönüşler görünsün
-          python - <<'PY' || true
-          import glob, json
-          for f in glob.glob("kout/*.log"):
-              try:
-                  rows = json.load(open(f, encoding="utf-8"))
-                  lines = [r.get("data", "") for r in rows if isinstance(r, dict)]
-              except Exception:
-                  lines = open(f, encoding="utf-8", errors="replace").read().splitlines()
-              keys = ("ORION", "Traceback", "Error", "ek diyalog", "çeviri", "checkpoint", "tokenizer")
-              for line in "".join(lines).splitlines():
-                  if any(k in line for k in keys):
-                      print("kaggle-günlük:", line[:300])
-          PY
+          # Oturum günlüğünden önemli satırlar (sessiz geri dönüşler görünsün)
+          python kaggle/gunluk.py kout || true
           M=$(find kout -path '*chat-export/manifest.json' | head -1)
           if [ -z "$M" ]; then echo "Çıktıda model yok (oturum hata vermiş olabilir)."; echo "next=start" >> "$GITHUB_OUTPUT"; exit 0; fi
           EXP=$(dirname "$M"); RUN=$(dirname "$EXP")/chat-run

@@ -54,12 +54,23 @@ if prev and not tok:
 extra = ""
 if EXTRA_URL.startswith("http"):
     # Çeviri verisi istendiyse SESSİZCE atlanmaz (76000 oturumu indirme hatasıyla eski veriyle eğitilmişti):
-    # birkaç deneme, olmazsa oturum hata verir ve iş akışı yeniden başlatır.
+    # birkaç deneme, olmazsa oturum hata verir; zamanlanmış iş akışı günlüğü gösterir, kendiliğinden yeniden başlatmaz.
     import time
     err = None
     for attempt in range(1, 6):
         try:
-            urllib.request.urlretrieve(EXTRA_URL, "/kaggle/tmp/ceviri.jsonl.gz")
+            # Yedekli indirme: urllib → curl → wget (hangisi Kaggle ağında çalışırsa)
+            dst = "/kaggle/tmp/ceviri.jsonl.gz"
+            try:
+                urllib.request.urlretrieve(EXTRA_URL, dst)
+            except Exception as e1:
+                print(f"ORION: urllib indiremedi: {e1!r}; curl deneniyor", flush=True)
+                r = subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", dst, EXTRA_URL], capture_output=True, text=True)
+                if r.returncode != 0:
+                    print(f"ORION: curl indiremedi ({r.returncode}): {r.stderr[-300:]}; wget deneniyor", flush=True)
+                    r = subprocess.run(["wget", "-q", "-O", dst, EXTRA_URL], capture_output=True, text=True)
+                    if r.returncode != 0:
+                        raise IOError(f"urllib/curl/wget başarısız: {e1!r}; wget {r.returncode} {r.stderr[-200:]}")
             size = os.path.getsize("/kaggle/tmp/ceviri.jsonl.gz")
             if size < 1000:
                 raise IOError(f"dosya çok küçük ({size} bayt)")
