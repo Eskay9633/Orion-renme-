@@ -4,7 +4,10 @@ import json
 from orion_core import chat
 
 
-def test_prepare_train_export(tmp_path):
+def test_prepare_train_export(tmp_path, monkeypatch):
+    from orion_core import cogexam
+    full = cogexam.load_items()
+    monkeypatch.setattr(cogexam, "load_items", lambda path=None: full[::30])  # hız: bilişsel sınavdan birkaç madde
     texts = [f"Orion telefonda yaşayan bir yapay zekadır. Bugün {i}. gün ve hava güzel. İstanbul büyük bir şehirdir." * 3
              for i in range(300)]
     data = tmp_path / "data"
@@ -18,6 +21,8 @@ def test_prepare_train_export(tmp_path):
     assert s2["step"] == 30  # kaldığı yerden devam
     m = chat.export_chat(run, data, tmp_path / "exp")
     assert (tmp_path / "exp" / "model.bin").exists() and m["kind"] == "chat"
+    # Bilişsel Yetenek Sınavı: iki ayrı puan, yalnızca rapor
+    assert 0 <= m["cog_bilissel"] <= 1 and 0 <= m["cog_ilkesel"] <= 1 and (tmp_path / "exp" / "cogexam.json").exists()
     par = json.loads((tmp_path / "exp" / "parity.json").read_text())
     assert par["cases"][0]["prompt"].startswith("Kullanıcı: ")
 

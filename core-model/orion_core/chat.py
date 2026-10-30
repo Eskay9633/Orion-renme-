@@ -439,8 +439,10 @@ def evaluate_release(dir: Path) -> dict:
     return run_exam(model, bpe)
 
 
-def export_chat(run: Path, data: Path, out: Path, ckpt_name: str = "ckpt.pt") -> dict:
-    """ckpt_name: "best.pt" ile eğitim içi sınavın en iyi ağırlıkları dışa aktarılır (erken durdurma)."""
+def export_chat(run: Path, data: Path, out: Path, ckpt_name: str = "ckpt.pt", cog_exam: bool = True) -> dict:
+    """ckpt_name: "best.pt" ile eğitim içi sınavın en iyi ağırlıkları dışa aktarılır (erken durdurma).
+    cog_exam: Bilişsel Yetenek Sınavı (cogexam) da yapılır; bölüm puanları manifest'e "cog_bilissel"/"cog_ilkesel"
+    olarak YALNIZCA RAPOR için yazılır (chat-model-floor.json'da kapısı yok), cevaplar cogexam.json'a."""
     from .export import export, load_quantized
     out.mkdir(parents=True, exist_ok=True)
     info = export(run / ckpt_name, out / "model.bin")
@@ -478,6 +480,13 @@ def export_chat(run: Path, data: Path, out: Path, ckpt_name: str = "ckpt.pt") ->
                 "params": m.n_params(), "step": status.get("step"), "tokens_seen": status.get("tokens_seen"),
                 "val_loss_int8": vl, "val_ppl_int8": math.exp(vl) if vl == vl else None, "persona_ok": persona_ok, "qa_score": qa_ok,
                 "data": json.loads((data / "data.json").read_text()) if (data / "data.json").exists() else {}}
+    if cog_exam:
+        from . import cogexam
+        if cogexam.EXAM_PATH.exists():
+            cog = cogexam.run(m, bpe)
+            (out / "cogexam.json").write_text(json.dumps(cog, ensure_ascii=False, indent=1), encoding="utf-8")
+            manifest["cog_bilissel"] = cog["bilissel"]["score"]  # ayrı puanlar; ortalaması alınmaz
+            manifest["cog_ilkesel"] = cog["ilkesel"]["score"]
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(manifest, ensure_ascii=False, indent=1))
     print(json.dumps(samples, ensure_ascii=False, indent=1))

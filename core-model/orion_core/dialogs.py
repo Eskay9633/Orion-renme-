@@ -494,17 +494,19 @@ PRINCIPLED_SHARE = 0.4
 
 def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[str]:
     """Konuya bağlı, çeşitli kişilik/yetenek diyalogları. Sınav soruları (QA_TESTS) hiç üretilmez; ilke temelli
-    üreticiden gelenlerde sınav sorusuna çok yakın biçimler (near_exam) de atılır. Eski karışım eski kurala
+    üreticiden gelenlerde sınav sorusuna çok yakın biçimler (near_exam) de atılır; bilişsel sınavın (cogexam)
+    mesajlarına yakın biçimler her iki kolda da atılır (near_cogexam). Eski karışım eski kurala
     (is_exam_question) bağlı kalır: "iyi geceler", "teşekkür ederim" gibi temel kalıplar orada zaten vardı.
     n: üretilecek diyalog sayısı (tam olarak n). stats verilirse kategori sayıları yazılır (eski karışım: "legacy")."""
     from . import principled
+    from .cogexam import near_cogexam  # bilişsel sınavın (cognitive-exam.jsonl) yakın biçimleri de eğitime girmez
     rng = random.Random(seed)
     out: list[str] = []
     while len(out) < n:
         if rng.random() < PRINCIPLED_SHARE:
             # soru son halinde (kendi büyük harf/soru işareti); çok turlu olabilir ("hayır"/"evet" devamı)
             cat, turns = principled.principled_turns(rng)
-            if any(is_exam_question(q) or near_exam(q) for q, _ in turns):
+            if any(is_exam_question(q) or near_exam(q) or near_cogexam(q) for q, _ in turns):
                 continue
             out.append("\n".join(format_dialog(q, a) for q, a in turns))
             if stats is not None:
@@ -556,10 +558,10 @@ def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[
             caps = rng.sample(CAPS, 4)
             q = rng.choice(["neler yapabilirsin", "ne işe yararsın", "hangi işleri yaparsın", "yeteneklerin neler"])
             a = "Şunları yapabilirim: " + ", ".join(c[0] for c in caps[:3]) + " ve " + caps[3][0] + ". Örneğin \"" + caps[0][2] + "\" diyebilirsin."
-        if is_exam_question(q):
+        if is_exam_question(q) or near_cogexam(q):
             continue
         qq = _variants(q, rng)
-        if is_exam_question(qq):
+        if is_exam_question(qq) or near_cogexam(qq):
             continue
         out.append(format_dialog(qq, a))
         if stats is not None:
@@ -583,6 +585,9 @@ def clean_pair(q: str, a: str) -> tuple[str, str] | None:
     if IDENTITY.search(a) or IDENTITY.search(q):
         return None
     if is_exam_question(q):  # sınav soruları eğitime girmez
+        return None
+    from .cogexam import near_cogexam
+    if near_cogexam(q):  # bilişsel sınavın mesajları ve yakın biçimleri de girmez
         return None
     words = re.findall(r"\w+", a.lower())
     if len(words) >= 5 and sum(w in TR_STOP or any(c in TR_CHARS for c in w) for w in words) / len(words) < 0.15:
