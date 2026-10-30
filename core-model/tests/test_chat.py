@@ -40,7 +40,7 @@ def test_persona_dialogues_are_diverse_and_question_dependent():
     assert len(questions) > 300 and len(answers) > 60
     # Kimlik sorusunun cevabı hep Orion'dan bahseder; yetenek sorusunun cevabı örnek cümle içerir
     for x in d:
-        q, a = x[len("Kullanıcı: "):].split("\nOrion: ")
+        q, a = _qa(x)
         if q.lower().rstrip("?").endswith("adın ne"):
             assert "Orion" in a
         if "hatırlatıcı kurabilir misin" in q.lower():
@@ -50,7 +50,8 @@ def test_persona_dialogues_are_diverse_and_question_dependent():
 def test_exam_questions_never_in_training():
     from orion_core import dialogs
     d = dialogs.persona_dialogues(60000, seed=7)  # prepare() ile aynı tohum ve boyut
-    qs = {dialogs.fold(x.split("\nOrion: ")[0][len("Kullanıcı: "):]) for x in d}
+    # çok turlu diyaloglarda her kullanıcı turu denetlenir
+    qs = {dialogs.fold(t.split("\nOrion: ")[0]) for x in d for t in x[len("Kullanıcı: "):].split("\nKullanıcı: ")}
     assert not (qs & dialogs.TEST_QUESTIONS)
     assert not any(dialogs.is_exam_question(q) for q in qs)
     # açık veri süzgeci de sınav sorusunu (büyük/küçük harf, noktalama farkıyla) atar
@@ -69,7 +70,8 @@ def test_exam_size_and_kinds():
 
 
 def _qa(x):
-    q, a = x[len("Kullanıcı: "):].split("\nOrion: ")
+    """İlk tur (soru, cevap); çok turlu diyaloglarda sonraki turlar ("\nKullanıcı: ...") atlanır."""
+    q, a = x[len("Kullanıcı: "):].split("\nKullanıcı: ")[0].split("\nOrion: ")
     return q, a
 
 
@@ -96,16 +98,21 @@ def test_important_actions_ask_for_approval_and_echo_details():
 
 
 def test_guard_mix_in_training():
-    from orion_core import dialogs
+    from orion_core import dialogs, principled
     d = [_qa(x) for x in dialogs.persona_dialogues(20000, seed=3)]
     secret = {dialogs.fold(q) for q in dialogs.SECRET_Q}
     approval = [a for q, a in d if "onaylıyor musun" in a or "onaylar mısın" in a or "istiyor musun" in a]
     assert len(approval) > 800
     sec = [a for q, a in d if dialogs.fold(q) in secret]
-    assert len(sec) > 150 and all(a in dialogs.SECRET_A for a in sec)
-    # gizli bilgi cevapları sınav ölçütünde ret sayılır
-    assert all(dialogs._has_key(dialogs.fold(a), dialogs.SECRET_KEYS) for a in dialogs.SECRET_A)
-    assert all("onaylıyor musun" not in a for a in dialogs.SECRET_A)
+    # "sor, açıkla, öğren": gizli bilgi alınmaz, ama düz ret yerine neden + amacını soran cevap
+    assert len(sec) > 150 and all(a in principled.SECRET_GENERIC_A for a in sec)
+    # gizli bilgi cevapları sınav ölçütünde de ret sayılır (SECRET_KEYS)
+    for a in principled.SECRET_GENERIC_A + dialogs.SECRET_A:
+        assert dialogs._has_key(dialogs.fold(a), dialogs.SECRET_KEYS) and "onaylıyor musun" not in a, a
+    for a in principled.SECRET_GENERIC_A:
+        assert "çünkü" in a and "?" in a, a
+    # eski düz ret cevapları (yalnızca sınav hakeminin ezber bankasında kalır) eğitimde yok
+    assert not {a for _, a in d} & set(dialogs.SECRET_A + dialogs.ILLEGAL_A)
     # karşıtlık: sıradan işler (not/hatırlatıcı) onay sormadan yapılır
     notes = [(q, a) for q, a in d if dialogs.fold(q).startswith("not al ") or dialogs.fold(q).endswith("diye not al")]
     assert len(notes) > 50 and all("onay" not in a.lower() and "?" not in a for _, a in notes)

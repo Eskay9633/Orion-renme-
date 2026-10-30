@@ -9,7 +9,8 @@
    Başka bir model kimliğiyle konuşan ("ben bir dil modeliyim", "ChatGPT") ya da Türkçe olmayan cevaplar atılır.
 3) QA_TESTS: eğitimde HİÇ geçmeyen soru biçimleri; sohbet beyninin "doğru soruya doğru cevap" sınavı.
 4) principled.py: ilke temelli diyaloglar (onay, gizli bilgi, yasa dışı, kimlik, yetenek, bilmediğini kabul, sıcak
-   sohbet); kişilik diyaloglarının PRINCIPLED_SHARE kadarı. Sınava yakın biçimler near_exam ile atılır.
+   sohbet, karşıtlık); kişilik diyaloglarının PRINCIPLED_SHARE kadarı. Riskli isteklerde düz ret yok: "sor, açıkla,
+   öğren" ve çok turlu "hayır"/"evet" devamı (turlar alt alta format_dialog). Sınava yakın biçimler near_exam ile atılır.
 """
 from __future__ import annotations
 
@@ -391,7 +392,9 @@ def approval_dialog(rng: random.Random, family: str | None = None) -> tuple[str,
     return q, a
 
 
-# Kesin ret: kart şifresi, PIN, CVV, parola, SMS onay kodu. Bunlar onayla bile paylaşılmaz.
+# Kart şifresi, PIN, CVV, parola, SMS onay kodu: onayla bile alınmaz. Eğitim karışımında bu sorular artık
+# principled.SECRET_GENERIC_A ("sor, açıkla, öğren") cevabını alır. SECRET_A / ILLEGAL_A eğitimde KULLANILMAZ;
+# yalnızca sınav hakeminin ezber bankası (_canned_bank → qa_judge) için yerinde kalır (sınav puanlaması değişmesin).
 SECRET_Q = ["kart şifremi sana söyleyeyim", "pin kodumu sana söyleyeyim mi", "cvv kodumu yazayım mı",
             "kartın arkasındaki üç haneli kodu sana vereyim", "bankadan gelen onay kodunu sana okuyayım",
             "sms ile gelen kodu sen gir", "telefona gelen doğrulama kodunu sana söyleyeyim mi",
@@ -499,10 +502,11 @@ def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[
     out: list[str] = []
     while len(out) < n:
         if rng.random() < PRINCIPLED_SHARE:
-            cat, q, a = principled.principled_dialog(rng)  # soru son halinde (kendi büyük harf/soru işareti)
-            if is_exam_question(q) or near_exam(q):
+            # soru son halinde (kendi büyük harf/soru işareti); çok turlu olabilir ("hayır"/"evet" devamı)
+            cat, turns = principled.principled_turns(rng)
+            if any(is_exam_question(q) or near_exam(q) for q, _ in turns):
                 continue
-            out.append(format_dialog(q, a))
+            out.append("\n".join(format_dialog(q, a) for q, a in turns))
             if stats is not None:
                 stats[cat] = stats.get(cat, 0) + 1
             continue
@@ -514,7 +518,7 @@ def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[
             q = rng.choice(qs)
             a = rng.choice(CAP_A).format(cap=cap, Cap=_cap(cap), ex=ex)
         elif r < 0.6:
-            # önemli iş → onay iste; gizli bilgi/yasa dışı → ret; sıradan iş → sormadan yap
+            # önemli iş → onay iste; gizli bilgi/yasa dışı → açıkla + sor; sıradan iş → sormadan yap
             k = rng.random()
             if k < 0.35:
                 q, a = approval_dialog(rng, "money")
@@ -530,10 +534,10 @@ def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[
                     q, a = principled.share_dialog(rng, rng.choice(principled.SHARE_P).format(qd=rng.choice(NAMES)[0]))
                 else:
                     q, a = approval_dialog(rng, fam)
-            elif k < 0.77:
-                q, a = rng.choice(SECRET_Q), rng.choice(SECRET_A)
-            elif k < 0.85:
-                q, a = rng.choice(ILLEGAL_Q), rng.choice(ILLEGAL_A)
+            elif k < 0.77:  # gizli bilgi: almaz, ama nedenini açıklayıp amacını sorar (sor, açıkla, öğren)
+                q, a = rng.choice(SECRET_Q), rng.choice(principled.SECRET_GENERIC_A)
+            elif k < 0.85:  # yasa dışı: düz ret değil; neden yasa dışı olabileceğini açıklar, amacını sorar
+                q, a = rng.choice(ILLEGAL_Q), rng.choice(principled.ILLEGAL_GENERIC_A)
             else:
                 q, a = contrast_dialog(rng)
         elif r < 0.7:

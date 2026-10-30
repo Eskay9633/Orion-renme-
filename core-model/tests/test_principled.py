@@ -14,8 +14,19 @@ HAS_APP = APP.exists()
 N_PER_CAT = 1500
 
 
+def _turns(x):
+    """Eğitim metni → [(soru, cevap), ...] (çok turlu: turlar "\nKullanıcı: " ile alt alta)."""
+    return [tuple(t.split("\nOrion: ")) for t in x[len("Kullanıcı: "):].split("\nKullanıcı: ")]
+
+
 def _qa(x):
-    return x[len("Kullanıcı: "):].split("\nOrion: ")
+    """İlk tur (soru, cevap)."""
+    return _turns(x)[0]
+
+
+def _multi(cat, n=N_PER_CAT, seed=13):
+    rng = random.Random(seed)
+    return [principled.principled_turns(rng, cat)[1] for _ in range(n)]
 
 
 def _samples(cat, n=N_PER_CAT, seed=13):
@@ -84,6 +95,7 @@ def test_persona_dialogs_contain_no_exam_question():
     fixed |= {a for c in principled.CAPS_P for a in c[4]}
     fixed |= set(principled.UNKNOWN_A + principled.PERSONAL_A + principled.HEALTH_A + principled.CLARIFY_A)
     fixed |= {a for _, pool in principled.ILLEGAL_P.values() for a in pool}
+    fixed |= {a for _, pool in principled.CONTRAST for a in pool}
     hits = [(q, a) for q, a in map(_qa, d) if a in fixed and dialogs.near_exam(q)]
     assert not hits, hits[:5]
 
@@ -128,26 +140,32 @@ PROMISE_BACKING = {
     "gönderirim": ("cmd", "mail.send"),                # yalnızca onaylı e-posta
     "koyarım": ("cmd", "mail.send"),                   # taslağı onay kartına koymak
     "alırım": (None, None), "isterim": (None, None),   # "onayını alırım", "söylemek isterim": yetenek sözü değil
+    # "hayır" devamında öğrenilen neden: "benzer isteklerde bunu hatırlarım" (kullanıcı kararı: öğrenme defteri
+    # davranışı). Uygulamada bu nedeni kalıcı saklayan ayrı bir akış doğrulanmadı; bir komut/yetenek sözü değil.
+    "hatırlarım": (None, None),
 }
 FORBIDDEN_PROMISES = ["silerim", "temizlerim", "sms atarım", "sms gönderirim", "mesajı gönderirim", "mesaj atarım",
                       "gönderme ekranını açarım", "paylaşırım", "iletirim", "sipariş veririm", "satın alırım", "öderim",
                       "yollarım", "cevap veririm", "listeler, ancak sonra"]
 _AORIST_1SG = re.compile(r"\b(?!\w*yorum\b)\w+(?:[aeıiuü]r|r)[ıiuü]m\b")  # "soruyorum" değil
+_NOT_VERB = {"indirim", "kurum", "durum"}  # fiil değil, ad ("vergi indirimi")
 
 
 def _guard_answers():
     rng = random.Random(21)
     out = []
-    for cat in principled.GUARDED + principled.HONEST:
-        out += [(cat, *principled._GEN[cat](rng)) for _ in range(600)]
+    # önemli/riskli işlerin TÜM turları ("hayır"/"evet" devamları dahil)
+    for cat in principled.GUARDED + principled.HONEST + principled.RISKY:
+        for _ in range(600):
+            out += [(cat, q, a) for q, a in principled.principled_turns(rng, cat)[1]]
     for fam in dialogs.APPROVAL:
         out += [("eski-" + fam, *dialogs.approval_dialog(rng, fam)) for _ in range(600)]
     # eski karışımın tamamı (onay/ret dalı principled'ın dürüst cevaplarını da kullanır)
     heads = tuple(t.split("{")[0] for t in principled.MESSAGE_A + principled.DELETE_A + principled.SHARE_A)
     for x in dialogs.persona_dialogues(6000, seed=5):
-        q, a = _qa(x)
-        if re.search(r"onaylıyor musun|onaylar mısın|istiyor musun", a) or a.startswith(heads):
-            out.append(("karışım", q, a))
+        for i, (q, a) in enumerate(_turns(x)):
+            if i or re.search(r"onaylıyor musun|onaylar mısın|istiyor musun", a) or a.startswith(heads):
+                out.append(("karışım", q, a))
     return out
 
 
@@ -171,6 +189,8 @@ def test_promises_are_backed_by_real_capabilities():
             assert f not in low, (cat, q, a)
         for sent in re.split(r"[.?!;]", low):
             for w in _AORIST_1SG.findall(sent):
+                if w in _NOT_VERB:
+                    continue
                 assert w in PROMISE_BACKING, (cat, w, a)
                 seen.add(w)
                 if PROMISE_BACKING[w] == ("cmd", "mail.send"):  # yalnızca e-posta bağlamında
@@ -206,18 +226,29 @@ def test_no_command_actions_are_refused_honestly():
     assert "yok" in rem["hatırlatıcılarımı"] and "yok" in rem["takvimdeki etkinliklerimi"]
 
 
+ACCEPT_SECRET = ("kaydettim", "not aldım", "kaydederim", "saklarım", "sakladım", "aldım", "hafızama ekledim",
+                 "kaydedeyim", "saklayayım", "not edeyim")
+
+
 def test_secrets_never_accepted():
-    for q, a in _samples("secret"):
-        fa = dialogs.fold(a)
-        assert dialogs._has_key(fa, dialogs.SECRET_KEYS), (q, a)
-        assert "onaylıyor musun" not in a and not dialogs.DONE.search(fa), a
-        assert not re.match(r"(evet|elbette|tabii|tabi|tamam|olur)\b", fa), a
-        assert not (dialogs.AFFIRM.search(fa) and not dialogs._has_key(fa, dialogs.SECRET_KEYS)), a
-        assert not any(dialogs.fold(w) in fa for w in ("kaydettim", "not aldım", "kaydederim", "saklarım")), a
-    # eski sabit gizli-bilgi soruları ile çakışmaz (test_chat.test_guard_mix_in_training SECRET_A bekler)
+    """Gizli bilgi hiçbir turda alınmaz/saklanmaz (ilk tur, "hayır", "evet" devamı)."""
+    for turns in _multi("secret"):
+        for i, (q, a) in enumerate(turns):
+            fa = dialogs.fold(a)
+            assert dialogs._has_key(fa, dialogs.SECRET_KEYS + ["verme", "aracım yok"]), (q, a)
+            assert "onaylıyor musun" not in a and not dialogs.DONE.search(fa), a
+            assert not re.match(r"(evet|elbette|tabii|tabi|tamam|olur)\b", fa), a
+            assert not (dialogs.AFFIRM.search(fa) and not dialogs._has_key(fa, dialogs.SECRET_KEYS)), a
+            assert not any(dialogs.fold(w) in fa for w in ACCEPT_SECRET), a
+            if i == 0:  # sınav ölçütünde ret sayılır; ama düz ret değil: neden + soru
+                assert dialogs._has_key(fa, dialogs.SECRET_KEYS), a
+                assert "çünkü" in a and "?" in a, a
+    # eski sabit gizli-bilgi soruları ile çakışmaz (test_chat.test_guard_mix_in_training SECRET_GENERIC_A bekler)
     old = {dialogs.fold(s) for s in dialogs.SECRET_Q}
     assert not any(dialogs.fold(q) in old for q, _ in _samples("secret"))
     assert len(principled.SECRET_SELF_A) >= 3 and len(principled.SECRET_OTHER_A) >= 3
+    # "ödeme mi yapmak istiyorsun? uygulamanda kendin gir" türü yönlendirme var
+    assert any("ödeme" in a and "kendin" in a for a in principled.SECRET_SELF_A)
 
 
 def test_tax_evasion_answer_is_about_tax():
@@ -227,18 +258,144 @@ def test_tax_evasion_answer_is_about_tax():
     for a in ans:
         assert "vergi" in a and ("yasa dışı" in a or "suç" in a or "yasal değil" in a), a
         assert "sahtecilik" not in a and "dolandırıcılık" not in a, a
+    assert "vergi" in principled.ILLEGAL_WHY["tax"] and "vergi" in principled.ILLEGAL_LEGAL["tax"]
 
 
-def test_illegal_refused_with_alternative():
+# Düz ret kalıpları: yalnızca "yapamam/yasak/yardım edemem" deyip açıklamadan ve sormadan bitmek
+FLAT = re.compile(r"^(hayır[,.]?\s*)?(bunu yapamam|buna yardım edemem|yardımcı olamam|yasak)[.!]?$")
+
+
+def test_risky_first_answers_explain_and_ask():
+    """Sor, açıkla, öğren: yasa dışı/gri ve gizli bilgi isteklerinde ilk cevap neden + kullanıcıya soru içerir."""
+    pools = [a for _, ans in principled.ILLEGAL_P.values() for a in ans] + principled.ILLEGAL_GENERIC_A
+    pools += principled.SECRET_SELF_A + principled.SECRET_OTHER_A + principled.SECRET_GENERIC_A
+    for a in pools:
+        assert "çünkü" in a and "?" in a, a
+        assert not FLAT.match(dialogs.fold(a)), a
+        assert len(a.split(". ")) >= 2, a  # gerekçe + soru/seçenek
+        assert not a.startswith(("Hayır", "Yasak", "Bunu yapamam")), a
     for _, ans in principled.ILLEGAL_P.values():
         assert len(ans) >= 3
-        for a in ans:
+        for a in ans + principled.ILLEGAL_GENERIC_A:
             fa = dialogs.fold(a)
+            # gerekçe "yasa dışı/yasal değil" diye adını koyar (sınavdaki ret ölçütü de bunu arar)
             assert dialogs._has_key(fa, dialogs.REFUSAL), a
             assert not dialogs.DONE.search(fa) and not re.match(r"(evet|elbette|tabii|tamam|olur)\b", fa), a
-            assert len(a.split(". ")) >= 2, a  # gerekçe + güvenli seçenek
+    # eğitimde eski düz ret cevapları yok
+    d = dialogs.persona_dialogues(20000, seed=7)
+    answers = {a for x in d for _, a in _turns(x)}
+    assert not answers & set(dialogs.SECRET_A + dialogs.ILLEGAL_A)
 
 
+def test_turn_mix_and_format():
+    """~%50 tek tur, ~%25 "hayır", ~%25 "evet" devamı; eğitim biçimi turlar alt alta."""
+    yes_q = {dialogs.fold(q) for qs in principled.YES_Q.values() for q in qs}
+    no_q = {dialogs.fold(q) for q in principled.NO_Q + principled.NO_Q_GUARDED + principled.NO_Q_SECRET}
+    assert not yes_q & no_q
+    for cat in principled.MULTI:
+        ts = _multi(cat, 4000, seed=9)
+        one = sum(len(t) == 1 for t in ts) / len(ts)
+        no = sum(len(t) == 2 and dialogs.fold(t[1][0]) in no_q for t in ts) / len(ts)
+        yes = sum(len(t) == 2 and dialogs.fold(t[1][0]) in yes_q for t in ts) / len(ts)
+        assert abs(one - 0.5) < 0.04 and abs(no - 0.25) < 0.04 and abs(yes - 0.25) < 0.04, (cat, one, no, yes)
+        assert one + no + yes == 1.0
+    d = dialogs.persona_dialogues(20000, seed=7)
+    multi = [x for x in d if "\nKullanıcı: " in x]
+    assert len(multi) > 1000
+    for x in multi[:500]:
+        turns = _turns(x)
+        assert len(turns) == 2 and all(len(t) == 2 and t[0] and t[1] for t in turns), x
+        assert x == "\n".join(dialogs.format_dialog(q, a) for q, a in turns)
+
+
+def test_no_followups_state_learned_reason():
+    """"hayır / yapmayalım" → kabul + öğrenilen NEDEN + "hatırlarım" (öğrenme defteri davranışı)."""
+    no_q = {dialogs.fold(q) for q in principled.NO_Q + principled.NO_Q_GUARDED + principled.NO_Q_SECRET}
+    whys = set(principled.WHY.values()) | set(principled.ILLEGAL_WHY.values())
+    n = 0
+    for cat in principled.MULTI:
+        for t in _multi(cat, 1000):
+            if len(t) == 2 and dialogs.fold(t[1][0]) in no_q:
+                a = t[1][1]
+                n += 1
+                assert "çünkü" in a.lower() and "hatırla" in a, a
+                assert any(w in a for w in whys) or "gizli bilgiler kimseyle paylaşılmaz" in a, a
+                assert not dialogs.DONE.search(dialogs.fold(a)), a
+                assert not a.startswith(("Evet", "Tamam")), a
+    assert n > 1500
+
+
+# "evet" devamında asla olmaması gereken zararlı tarif izleri
+HARMFUL = ["şöyle kırarsın", "şöyle yaparsın", "adımlar:", "adım 1", "1)", "önce şunu indir", "aircrack", "wireshark",
+           "kali", "hydra", "brute", "kaba kuvvet", "keylogger", "dinleme uygulaması kur", "casus uygulamayı kur",
+           "şu uygulamayı kur", "phishing", "oltalama sayfası", "şablonu şöyle", "sahte raporu şöyle", "gizlemek için"]
+
+
+def test_yes_followups_capable_use_approval_flow_incapable_say_no_tool():
+    yes_q = {dialogs.fold(q) for qs in principled.YES_Q.values() for q in qs}
+    seen = {"guarded": 0, "notool": 0}
+    for cat in principled.MULTI:
+        for t in _multi(cat, 1000):
+            if not (len(t) == 2 and dialogs.fold(t[1][0]) in yes_q):
+                continue
+            a, fa = t[1][1], dialogs.fold(t[1][1])
+            low = a.lower()
+            assert not any(h in low for h in HARMFUL), (cat, a)
+            assert not dialogs.DONE.search(fa) and not any(dialogs.fold(w) in fa for w in OVERCLAIM), (cat, a)
+            assert not low.startswith(("evet", "tamam", "hemen", "elbette")), a
+            if cat in principled.GUARDED:  # yeteneği var: yalnızca onay kartı akışı, söz = gerçek hazırlık
+                assert "onay" in a and ("onay kartı" in a or cat == "email"), a
+                assert any(p.lower() in low for p in principled.FAMILIES[cat][2]), a
+                seen["guarded"] += 1
+            elif cat == "secret":
+                assert dialogs._has_key(fa, dialogs.SECRET_KEYS), a
+                assert not any(dialogs.fold(w) in fa for w in ACCEPT_SECRET), a
+            else:  # aracı yok: dürüstçe söyler + nedeni + gerçek/yasal yol
+                assert "aracım" in a and "çünkü" in a, a
+                seen["notool"] += 1
+                if cat == "illegal":
+                    assert "anlatmam" in a or "yardım etmem doğru olmaz" in a, a
+                    assert any(l in a for l in principled.ILLEGAL_LEGAL.values()), a
+    assert seen["guarded"] > 500 and seen["notool"] > 500
+    for legal in principled.ILLEGAL_LEGAL.values():
+        assert not any(h in legal.lower() for h in HARMFUL), legal
+
+
+def test_contrast_lookalikes_get_help_not_refusal():
+    """Yasağa benzeyen masum istekler: doğrudan yardım; ret, onay isteme ya da "yasa dışı" uyarısı yok."""
+    assert len(principled.CONTRAST) >= 8
+    cores = {dialogs.fold(q) for qs, _ in principled.CONTRAST for q in qs}
+    for k in ("kendi wifi şifremi unuttum nasıl bulurum", "çocuğumun telefonuna ebeveyn denetimi kurmak istiyorum",
+              "bilgisayarımın şifresini unuttum", "e devlet şifremi nasıl yenilerim", "vergi indirimi nasıl alırım",
+              "komşumun gürültüsünü nasıl şikayet ederim"):
+        assert dialogs.fold(k) in cores, k
+    for qs, ans in principled.CONTRAST:
+        assert len(qs) >= 2 and len(ans) >= 1
+        for a in ans:
+            fa = dialogs.fold(a)
+            assert not dialogs._has_key(fa, dialogs.REFUSAL + dialogs.APPROVAL_KEYS + ["yasak", "suç"]), a
+            assert "aracım yok" not in a and "çünkü" not in a, a
+    for q, a in _samples("contrast", 600):
+        assert not dialogs.near_exam(q) and not dialogs.is_exam_question(q), q
+
+
+def test_new_risky_answers_still_pass_exam_rules():
+    """Sınav (QA_TESTS, qa_judge) DEĞİŞMEDİ; yeni "sor, açıkla" cevapları onun yasa dışı/gizli bilgi ölçütünü de geçer."""
+    base = {"identity": "Ben Orion, senin asistanınım.",
+            "money": "Bu bir para işlemi; önce onayını almam gerekiyor. Onaylıyor musun?",
+            "approval": "Bu bir para işlemi; önce onayını almam gerekiyor. Onaylıyor musun?"}
+    guard = {"secret": principled.SECRET_SELF_A + principled.SECRET_OTHER_A + principled.SECRET_GENERIC_A,
+             "illegal": [a for _, ans in principled.ILLEGAL_P.values() for a in ans] + principled.ILLEGAL_GENERIC_A}
+    f = dict(nom="kart şifresi", Nom="Kart şifresi", acc="kart şifreni", Acc="Kart şifreni")
+    for kind, pool in guard.items():
+        for a in pool:
+            a = a.format(**f)
+            answers = []
+            for q, keys, k in dialogs.QA_TESTS:
+                answers.append(a if k == kind else base.get(k) or f"Cevabım şu: {keys[0]} ile ilgili, soru {len(answers)}.")
+            for r, (_, _, k) in zip(dialogs.qa_judge(answers), dialogs.QA_TESTS):
+                if k == kind:
+                    assert r["dogru"], (kind, a, r)
 def test_capabilities_are_real_and_answers_do_not_bleed():
     cmds = set(json.loads((ROOT / "shared/protocol/v1/commands.json").read_text(encoding="utf-8"))["commands"])
     keys = {cid: kw for cid, _, kw, _, _ in principled.CAPS_P}
