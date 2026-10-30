@@ -757,6 +757,8 @@ def _t2c_example_once(rng: random.Random, split: str, noise: bool) -> dict:
         cmd, tr, args = contrast_example(rng)
     elif r_train < CONTRAST_FRAC + IDENTITY_FRAC:
         cmd, tr, args = identity_example(rng)
+    elif r_train < CONTRAST_FRAC + IDENTITY_FRAC + SKILL_FRAC:
+        cmd, tr, args = skill_example(rng)  # Tur 19 yeni beceri aileleri (yalnızca eğitim)
     elif split == "legacy_ood":
         tr, args = rng.choice(_templates_for(cmd, "test_ood"))(rng, "test_ood")
     elif split == "test_ood" or rng.random() < GRAMMAR_FRAC:
@@ -1650,6 +1652,280 @@ def identity_example(rng: random.Random) -> tuple[str, str, dict]:
         return "memory.recall", rng.choice(IDENTITY_RECALL), {}
     q = rng.choice(IDENTITY_ASK)
     return "ask", q + rng.choice(["", "?"]), {"question": q}
+
+
+# --------------------------------------------------------------------------- Tur 19: yeni beceri aileleri (yalnızca eğitim)
+# Komut beyninin ek adımları (6000 → 10000) aynı veriyi tekrarlamak yerine YENİ becerilere harcansın diye.
+# Dört aile; hepsi yalnızca EĞİTİM akışına girer (r_train çekilişi yalnızca split="train"), test/kalibrasyon kümeleri
+# ve Kotlin translator-eval.jsonl değişmez (test_datagen_tur18.SPLIT_SHA). Kurallar (tests/test_datagen_tur19.py):
+#   - değer havuzları değerlendirme kümelerinin değerlerinden ve _split'in ayrılmış (test) dilimlerinden ayrıktır,
+#   - fiil/çerçeveler yalnızca eğitim parçalarından (split_pool "train") ya da ayrılmış yapılara Jaccard < 0.6 yeni çerçeveler,
+#   - hiçbir cümle elle yazılmış/kör kümelerin bir cümlesiyle aynı ya da sözcük-Jaccard ≥ 0.8 değildir (_fenced).
+# Bilerek EKLENMEYENLER (protokol/çevirici karşılığı yok, anlam uydurulmaz): saniyeli süreler ("kırk beş saniye":
+# timer.start minutes tam sayı ≥ 1), saatsiz gün bölümü ("iki gün sonra sabah", "akşamüstü": Kotlin TimeParser bunu
+# ya +2d'ye çevirir ya hiç çözmez), "notlarımda X geçenleri göster" (ayrılmış NS_FRAMES[3] kalıbının birebir yapısı).
+SKILL_FRAC = 0.11  # t2c eğitim çekilişlerinin %11'i ≈ tüm akışın %8,1'i (tohum %3, dış veri %5 ile)
+SKILL_MIX = (("sayı", 0.30), ("göreli", 0.25), ("uzun_ad", 0.25), ("not_arama", 0.20))
+
+
+def num_words(n: int) -> str:
+    """1-99 arası sayının okunuşu: 15 → on beş, 45 → kırk beş, 70 → yetmiş."""
+    assert 1 <= n <= 99
+    return " ".join(w for w in (_TENS_W[n // 10], _UNIT_W[n % 10]) if w)
+
+
+def _dur(nom: str, minutes: int, at: str | None = None) -> tuple[str, int, str]:
+    """(okunuş, dakika, ofset). Ofset: tam saatler +Nh, diğerleri +Nm (protokol 'when': N tam sayı)."""
+    return nom, minutes, at or f"+{minutes}m"
+
+
+# Yazıyla süreler (rakamla "15 dakika" zaten dilbilgisi motorunda var)
+SKILL_MINUTES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 25, 30, 35, 40, 45, 50, 55, 70, 75, 80, 90]
+SKILL_DURATIONS = (
+    [_dur(f"{num_words(n)} dakika", n) for n in SKILL_MINUTES]
+    + [_dur(f"{HOUR_WORDS[h]} saat", 60 * h, f"+{h}h") for h in (1, 2, 3, 4, 5, 6)]
+    + [_dur("yarım saat", 30), _dur("çeyrek saat", 15), _dur("bir buçuk saat", 90), _dur("iki buçuk saat", 150),
+       _dur("üç buçuk saat", 210), _dur("bir saat on beş dakika", 75), _dur("bir saat yirmi dakika", 80),
+       _dur("bir saat kırk beş dakika", 105), _dur("iki saat otuz dakika", 150), _dur("1,5 saat", 90),
+       _dur("2 buçuk saat", 150), _dur("1 buçuk saat", 90)]
+)
+
+
+def dur_adj(nom: str) -> str:
+    """Sıfat hâli: on beş dakikalık, yarım saatlik, bir buçuk saatlik."""
+    return nom + ("lık" if nom.endswith("dakika") else "lik")
+
+
+def dur_dat(nom: str) -> str:
+    """Yönelme hâli: on beş dakikaya, yarım saate."""
+    return nom + ("ya" if nom.endswith("dakika") else "e")
+
+
+# Zamanlayıcı etiketleri: el yazımı/kör kümelerin etiketleri ("çalışma", "haşlanmış yumurta") ve ayrılmış dilim yok.
+SKILL_TIMER_LABELS = [x for x in _split(TIMER_LABELS, "train") if x != "çalışma"] + [
+    "pilav", "kek", "demlik", "fırındaki börek", "ders molası", "şınav seti", "yüz maskesi", "pomodoro",
+    "kısa mola", "ekmek hamuru", "tavuk haşlama", "çamaşır suyu bekletme", "saç boyası", "kuru fasulye",
+]
+# Zamanlayıcı söyleyişleri (yeni; ayrılmış TIMER_FRAMES "{V}: {M} dakika", "{M} dk {V}" ve fiiller "say",
+# "geri sayım yap" kullanılmaz; yalın "{A} {V}" ve "zamanlayıcıyı {D} kur", ayrılmış "{V}: {M} dakika" yapısına
+# Jaccard ≥ 0.6 benzediği için yok). A = sıfat ("on beş dakikalık"), N = yalın, D = yönelme ("yarım saate").
+SKILL_TIMER_FRAMES = [
+    "şimdi {A} bir {V}", "{L} için {A} {V}", "{A} {L} sayacı kur", "bana {A} bir zamanlayıcı kurar mısın",
+    "{A} bir geri sayım istiyorum", "zamanlayıcıyı {D} ayarlar mısın", "sayacı {D} ayarla", "{N} sonra çalacak bir zamanlayıcı kur",
+    "{L} {N} sürecek, {V}", "{N} boyunca süre tut", "{L} için sayacı {D} kurar mısın",
+]
+
+
+def _skill_numbers(rng: random.Random) -> tuple[str, str, dict]:
+    """Yazıyla sayı ve süreler → timer.start {minutes} ya da reminder.set {at:+Nm|+Nh}."""
+    nom, minutes, at = rng.choice(SKILL_DURATIONS)
+    if rng.random() < 0.6:
+        f = rng.choice(SKILL_TIMER_FRAMES)
+        args: dict = {"minutes": minutes}
+        lb = ""
+        if "{L}" in f:
+            lb = rng.choice(SKILL_TIMER_LABELS)
+            args["label"] = lb
+        v = _verb(rng, "train", TIMER_VERBS, False)
+        return "timer.start", _fill(f, A=dur_adj(nom), N=nom, D=dur_dat(nom), L=lb, V=v), args
+    x = pick(rng, REMINDER_TEXTS, "train", lambda r: random_phrase(r, 1, 4))
+    v = _verb(rng, "train", REM_VERBS, False)
+    return "reminder.set", _fill(_frame(rng, "train", REM_FRAMES, False), T=f"{nom} sonra", X=x, V=v), {"at": at, "text": x}
+
+
+def _daypart_clock(rng: random.Random, h: int, m: int) -> str:
+    """Gün bölümlü saat (sabah dokuzda, öğleden sonra 4'te, akşam sekiz buçukta); yorum _part ile aynı."""
+    pre, n = _part(rng, h)
+    if pre == "öğlen":
+        return rng.choice(["öğlen", "öğlen 12'de"]) if m == 0 else "öğlen 12 buçukta"
+    if m == 30:
+        return f"{pre} {rng.choice([HOUR_WORDS[n], str(n)])} buçukta"
+    return f"{pre} {word_loc(n)}" if rng.random() < 0.5 else f"{pre} {n}'{loc_suffix(n)}"
+
+
+def _rel_time(rng: random.Random, allow_offset: bool) -> TimeExpr:
+    """Göreli zamanlar: yazıyla 'üç saat sonra' (+3h), 'iki gün sonra' (+2d), 'iki gün sonra sabah dokuzda' (d+2@09:00),
+    'bu akşam sekizde' (d+0@20:00), 'öğleden sonra 4'te' (d+0@16:00). Hepsi random_time/Kotlin TimeParser yorumuyla aynı."""
+    r = rng.random() if allow_offset else 0.4 + 0.6 * rng.random()
+    if r < 0.2:
+        n = rng.randint(1, 12)
+        w = HOUR_WORDS[n] if rng.random() < 0.7 else str(n)
+        return TimeExpr(f"{w} saat sonra", f"+{n}h")
+    if r < 0.32:
+        n = rng.choice([15, 16, 18, 20, 24, 36, 48, 72])
+        return TimeExpr(f"{n} saat sonra", f"+{n}h")
+    if r < 0.4:
+        n = rng.randint(2, 10)
+        return TimeExpr(f"{HOUR_WORDS[n] if n <= 12 else n} gün sonra", f"+{n}d")
+    h = rng.choice([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    m = rng.choice([0, 0, 0, 30])
+    clock = _daypart_clock(rng, h, m)
+    hm = f"{h:02d}:{m:02d}"
+    if r < 0.62:
+        n = rng.randint(2, 9)
+        return TimeExpr(f"{HOUR_WORDS[n] if rng.random() < 0.6 else n} gün sonra {clock}", f"d+{n}@{hm}")
+    if r < 0.74 and h >= 18:
+        return TimeExpr(f"bu {clock}", f"d+0@{hm}")  # "bu akşam sekizde", "bu gece on birde"
+    if r < 0.86 and 13 <= h <= 17:
+        day, code = rng.choice([("", "d+0@"), ("bugün ", "d+0@"), ("yarın ", "d+1@")] + [(f"{d} ", f"{c}@") for d, c in DOW_TR])
+        return TimeExpr(f"{day}{clock}".strip(), f"{code}{hm}")
+    day, code = rng.choice([("yarın", "d+1"), ("öbür gün", "d+2"), ("bugün", "d+0")])
+    return TimeExpr(f"{day} {clock}", f"{code}@{hm}")
+
+
+def _skill_relative(rng: random.Random) -> tuple[str, str, dict]:
+    if rng.random() < 0.7:
+        t = _rel_time(rng, True)
+        x = pick(rng, REMINDER_TEXTS, "train", lambda r: random_phrase(r, 1, 4))
+        v = _verb(rng, "train", REM_VERBS, False)
+        return "reminder.set", _fill(_frame(rng, "train", REM_FRAMES, False), T=t.tr, X=x, V=v), {"at": t.when, "text": x}
+    t = _rel_time(rng, False)
+    x = pick(rng, EVENT_TITLES, "train", lambda r: random_phrase(r, 1, 3))
+    v = _verb(rng, "train", CAL_VERBS, False)
+    return "calendar.add", _fill(_frame(rng, "train", CAL_FRAMES, False), T=t.tr, X=x, V=v), {"title": x, "start": t.when}
+
+
+# Çok sözcüklü, iyelikli adlar: argüman tümüyle korunmalı ("annemin doğum günü", "kombi servisi randevusu").
+# Değerlendirme kümelerindeki değerler (ör. el yazımı "diş randevusu", "akşam yemeği") bilerek yok.
+MULTI_REM_TEXTS = [
+    "annemin doğum günü", "kombi servisi randevusu", "babamın emeklilik yemeği", "arabanın kasko yenilemesi",
+    "kızımın okul gezisi", "apartman yönetim toplantısı", "diş hekimi kontrolü", "kedinin kuduz aşısı",
+    "doğalgaz faturasının son günü", "teyzemin hastane randevusu", "kira sözleşmesinin yenilenmesi",
+    "oğlumun yüzme kursu kaydı", "eşimin terfi kutlaması", "anneannemin ilaç saati", "çocukların karne günü",
+    "ehliyet yenileme randevusu", "kuru temizlemeden ceketi almak", "bulaşık makinesi tamircisi",
+    "su sayacının okunması", "komşunun taşınma yardımı", "dedemin bayram ziyareti", "ofisin yangın tatbikatı",
+    "kardeşimin mezuniyet töreni", "bebeğin altı aylık aşısı", "kombinin yıllık bakımını yaptırmak",
+    "annemin tansiyon ilacını almak", "evin sigorta poliçesini yenilemek", "babamın göz muayenesi",
+]
+MULTI_EVENT_TITLES = [
+    "kardeşimin nişan töreni", "şirketin yıl sonu yemeği", "kombi servisi randevusu", "ekip haftalık değerlendirme toplantısı",
+    "çocukların yüzme dersi", "annemin doğum günü yemeği", "apartman yönetim toplantısı", "kedinin aşı kontrolü",
+    "ev sahibiyle kira görüşmesi", "üniversite arkadaşlarıyla buluşma", "bankada kredi görüşmesi", "proje lansman sunumu",
+    "okulun bahar şenliği", "dedemin doksanıncı yaş günü", "yeni ofisin açılış kokteyli", "müşteriyle sözleşme imzası",
+    "fizik tedavi seansı", "diş hekimi kontrolü", "kızımın piyano resitali", "babamın göz muayenesi",
+]
+MULTI_NOTE_TEXTS = [
+    "annemin doğum günü için kaşmir şal alınacak", "kombi servisi salı günü geliyor",
+    "arabanın kasko poliçesi mart sonunda bitiyor", "çocukların okul servis ücreti arttı",
+    "kiracının depozitosu iade edilecek", "babamın tansiyon ilacı değişti", "balkon kapısının menteşesi gıcırdıyor",
+    "düğün hediyesi için ortak hesap açıldı", "apartman aidatı 1500 liraya çıktı", "yeni telefonun garanti belgesi çekmecede",
+    "bahar temizliği için perdeler yıkanacak", "kedinin mamasını değiştirmeyi dene", "teyzemlere bayramda tatlı götür",
+    "kurs kayıt ücreti iki taksit", "dedemin doksanıncı yaş günü için albüm hazırla", "ofisin yangın tatbikatı cuma günü",
+]
+
+
+def _skill_multiword(rng: random.Random) -> tuple[str, str, dict]:
+    r = rng.random()
+    if r < 0.45:
+        t = random_time(rng, split="train")
+        x = rng.choice(MULTI_REM_TEXTS)
+        acc = G.inf_accusative(x)
+        if acc and rng.random() < 0.6:
+            v = G.choose(rng, REM_ACC_VERBS, "train", False)
+            return "reminder.set", _fill(_frame(rng, "train", REM_ACC_FRAMES, False), T=t.tr, XA=acc, V=v), {"at": t.when, "text": x}
+        v = _verb(rng, "train", REM_VERBS, False)
+        return "reminder.set", _fill(_frame(rng, "train", REM_FRAMES, False), T=t.tr, X=x, V=v), {"at": t.when, "text": x}
+    if r < 0.8:
+        t = random_time(rng, allow_offset=False, split="train")
+        x = rng.choice(MULTI_EVENT_TITLES)
+        v = _verb(rng, "train", CAL_VERBS, False)
+        return "calendar.add", _fill(_frame(rng, "train", CAL_FRAMES, False), T=t.tr, X=x, V=v), {"title": x, "start": t.when}
+    x = rng.choice(MULTI_NOTE_TEXTS)
+    v = _verb(rng, "train", NOTE_VERBS, False)
+    return "note.write", _fill(_frame(rng, "train", NOTE_FRAMES, False), X=x, V=v), {"text": x}
+
+
+# Not arama: doğal söyleyişler. Sorgu havuzu değerlendirme sorgularından ("kira", "veteriner", "kapıcı", "doğum günü",
+# "sigorta", "anahtar") ve QUERIES'in ayrılmış diliminden ayrık. QI = birleşik "ile" ("aidatla", "vize başvurusuyla").
+# Yalın "{Q} hakkındaki notlar", "{Q} ile ilgili notlarımı getirir misin" ayrılmış yapılara Jaccard ≥ 0.6 (eğitim
+# çerçevesi + ayrılmış fiil "listele") benzediği için uzatılmış hâlleriyle var.
+SKILL_QUERIES = [
+    "aidat", "tapu", "pasaport", "vize başvurusu", "düğün", "taşınma", "boya badana", "kreş", "emeklilik",
+    "garanti belgesi", "tatil rotası", "bahçe", "ders programı", "kitap listesi", "kamp malzemeleri", "araba bakımı",
+    "mülakat", "kombi bakımı", "elektrik tesisatı", "yatırım fonu", "doktor raporu", "okul servisi",
+]
+SKILL_NS_FRAMES = [
+    "{Q} ile ilgili notlarımı bulur musun", "{QI} ilgili yazdığım her şeyi göster", "{Q} hakkındaki notlarıma ihtiyacım var",
+    "{Q} hakkındaki notlar, hepsini görmek istiyorum", "{Q} hakkında yazdığım notlar nerede", "{Q} hakkında tuttuğum notları aç",
+    "{Q} konusunda yazdığım notları bul", "{Q} ile alakalı notlar var mıydı", "not defterimde {Q} ile ilgili ne var",
+    "{Q} için aldığım notları göster", "{QI} ilgili kaydettiğim notlar hangileri", "{Q} geçen bir not yazmıştım, onu bul",
+    "{QI} alakalı ne yazdıysam getir",
+]
+
+
+def with_ile(q: str) -> str:
+    """Birleşik 'ile': aidat → aidatla, vize başvurusu → vize başvurusuyla, düğün → düğünle."""
+    return q + ("y" if q[-1] in G.VOWELS else "") + "l" + G.h2(q)
+
+
+def _skill_note_search(rng: random.Random) -> tuple[str, str, dict]:
+    frames = SKILL_NS_FRAMES
+    if rng.random() < 0.35:
+        q = rng.choice(SKILL_QUERIES)
+    else:
+        q = pick(rng, QUERIES, "train", lambda r: random_phrase(r, 1, 2))
+        if q not in QUERIES:  # rastgele ifade (ekli olabilir): birleşik "ile" yapılmaz
+            frames = [f for f in frames if "{QI}" not in f]
+    f = rng.choice(frames)
+    return "note.search", _fill(f, Q=q, QI=with_ile(q)), {"query": q}
+
+
+SKILL_FAMILIES = {"sayı": _skill_numbers, "göreli": _skill_relative, "uzun_ad": _skill_multiword,
+                  "not_arama": _skill_note_search}
+
+_FENCE: dict = {}
+
+
+def _fence_norm(s: str) -> str:
+    """test_handwritten._norm ile aynı: nezaket ön/son ekleri ve noktalama atılır."""
+    s = s.lower().strip().rstrip(".?!").strip()
+    for p in ("hey orion ", "orion, ", "orion ", "lütfen ", "acaba "):
+        if s.startswith(p):
+            s = s[len(p):]
+    for p in (" lütfen", " teşekkürler", " rica etsem"):
+        if s.endswith(p):
+            s = s[: -len(p)]
+    return s.strip()
+
+
+def _fence_toks(s: str) -> frozenset:
+    import re
+    return frozenset(re.sub(r"[.,:;?!\"]", " ", _fence_norm(s)).split())
+
+
+def _fence() -> dict:
+    """Elle yazılmış + kör değerlendirme cümleleri (yalnızca DIŞLAMA için; eğitime hiçbir şey eklemez)."""
+    if not _FENCE:
+        from pathlib import Path
+        base = Path(__file__).resolve().parents[2] / "shared" / "core-model"
+        srcs = []
+        for name in ("handwritten-eval.jsonl", "blind-eval.jsonl"):
+            p = base / name
+            if p.exists():
+                srcs += [json.loads(x)["src"] for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+        _FENCE["norm"] = {_fence_norm(s) for s in srcs}
+        _FENCE["toks"] = [_fence_toks(s) for s in srcs]
+    return _FENCE
+
+
+def _fenced(src: str) -> bool:
+    """Değerlendirme cümlesiyle aynı ya da sözcük-Jaccard ≥ 0.8 → üretilmez (yeniden çekilir)."""
+    f = _fence()
+    if _fence_norm(src) in f["norm"]:
+        return True
+    t = _fence_toks(src)
+    return any(len(t & u) / len(t | u) >= 0.8 for u in f["toks"])
+
+
+def skill_example(rng: random.Random, family: str | None = None) -> tuple[str, str, dict]:
+    """(komut, cümle, argümanlar): yeni beceri ailelerinden biri (SKILL_MIX oranlarıyla)."""
+    names = [n for n, _ in SKILL_MIX]
+    fam = family or rng.choices(names, weights=[w for _, w in SKILL_MIX])[0]
+    for _ in range(20):
+        cmd, tr, args = SKILL_FAMILIES[fam](rng)
+        if not _fenced(tr):
+            return cmd, tr, args
+    raise ProtocolError("E_INTERNAL", "beceri ailesi değerlendirme cümlelerinden uzak cümle üretemedi")
 
 
 def grammar_example(rng: random.Random, cmd: str, split: str) -> tuple[str, dict]:

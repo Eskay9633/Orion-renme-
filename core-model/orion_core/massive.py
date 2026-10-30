@@ -75,11 +75,13 @@ DATA_SOURCES = [
 TRAIN_FILE = "massive-train.jsonl"
 EVAL_FILES = {"massive_tr": "massive_tr.jsonl", "xsid_tr": "xsid_tr.jsonl"}
 
-# Eğitim akışındaki pay (train.py Stream): tüm örneklerin %12'si (t2c'nin ~%15'i). Bu payın içinde:
+# Eğitim akışındaki pay (train.py Stream): tüm örneklerin %5'i (Tur 19 sahip kararı; önce %12). Bu payın içinde:
 # eylem komutları %25, sohbet (ask, gerçekten soru) %30, kapsam dışı olumsuz (ask) %45.
-# Eylem havuzu küçük (~370 satır): 6000 adım × 48 örnekte her eylem satırı ~23 kez görülür; daha büyük pay ezberletir.
-# Sohbet + kapsam dışı ≈ akışın %9'u ask olur (dilbilgisi üreticisinde ask ağırlığı ~%4).
-EXT_FRAC = 0.12
+# Eylem havuzu küçük (~370 satır): 10000 adım × 48 örnekte her eylem satırı ~16 kez görülür (önce 6000 adımda ~23).
+# Sohbet + kapsam dışı ≈ akışın %3,75'i ask olur (önce %9; dilbilgisi üreticisinde ask ağırlığı ~%4).
+# %12'de kapsam dışı "ask" olumsuzları ("salı günkü doktor randevusunu iptal edebilir misin", "alarmları kaldır")
+# eylem komutlarıyla aynı yüzey ipuçlarını taşıdığından eylem cümlelerinde ilk belirteç güvenini bölüyordu (Tur 19 raporu).
+EXT_FRAC = 0.05
 POOL_WEIGHTS = {"action": 0.25, "chat": 0.3, "neg": 0.45}
 
 

@@ -4,7 +4,7 @@
 - --teacher verilirse BİLGİ DAMITMA: öğretmen modelin yumuşak olasılıklarıyla KL kaybı
 
 Kullanım:
-  python -m orion_core.train --out work/run --steps 6000 --time-budget-min 300
+  python -m orion_core.train --out work/run --steps 10000 --time-budget-min 300
   python -m orion_core.train --out work/student --teacher work/teacher/ckpt.pt --kd-alpha 0.5
 """
 from __future__ import annotations
