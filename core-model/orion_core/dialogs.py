@@ -495,7 +495,9 @@ def _variants(q: str, rng: random.Random) -> str:
 # Sohbet beyni kişilik karışımı (Tur 21, sahibinin yönü: önce KİŞİLİK). Paylar persona_dialogues'ta uygulanır;
 # gerçekleşen sayılar stats ile (mix_shares) raporlanır. Kurallar korunur ama payı azaldı (0.4 → 0.15).
 # Tur 22: MKQA çıktı (kendinden emin yanlış cevap); yerine bilgi yönlendirme; ilke 0.15 → 0.22 (kişisel ton)
-MIX = {"personality": 0.40, "memory": 0.13, "principled": 0.22, "reasoning": 0.10, "route": 0.08, "legacy": 0.07}
+# Tur 23 (büyük beyin, 86000'den büyütme + damıtma): ilke 0.35 (86000'deki kişisel ton ağırlığı), kişilik 0.30,
+# akıl yürütme 0.15 (çeşit arttı), hafıza 0.10, bilgi yönlendirme 0.05, eski karışım 0.05
+MIX = {"personality": 0.30, "memory": 0.10, "principled": 0.35, "reasoning": 0.15, "route": 0.05, "legacy": 0.05}
 PRINCIPLED_SHARE = MIX["principled"]
 _MIX_PREFIX = {"personality": "kisilik:", "memory": "hafiza:", "reasoning": "akil:", "route": "bilgiyol:"}
 

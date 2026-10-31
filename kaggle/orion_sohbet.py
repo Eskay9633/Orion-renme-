@@ -20,12 +20,59 @@ EXTRA_URL = "__EXTRA__"  # isteğe bağlı çeviri verisi (en son ceviri-* Relea
 # göre hesaplanır: 70000→90000 devamında etkin lr ~3e-5'ten ~1.5e-5'e iner (5e-4 tabanla ~1e-4'e SIÇRARDI).
 # Ek veri varken her 2000 adımda sınav (40 soru, açgözlü; ekran kartında tahmini <1 dk, doğrulanmadı) yapılır,
 # en iyi ağırlıklar best.pt'ye yazılır ve ayrıca chat-export-best olarak dışa aktarılır (erken durdurma).
-FT_LR, FT_DIALOG_FRAC, FT_EXAM_EVERY = "1.5e-4", "0.85", "2000"  # Tur 22: Vikipedi payı 0.25 → 0.15
+FT_LR, FT_DIALOG_FRAC, FT_EXAM_EVERY = "1.5e-4", "0.75", "2000"  # Tur 23: Vikipedi payı 0.15 → 0.25 geri
+# BÜYÜK beyin (Tur 23): orta 86000 modelinden genişlik büyütülür (grow.py, işlev korunur) ve aynı model ÖĞRETMEN olarak
+# damıtılır (yalnız diyalog satırları, T=2, α=0.5). Öğretmen her oturumda bu sabit Release'ten iner; dosyalar sha256 ile
+# doğrulanır (model.bin: Release manifest'i + sabit değer; tokenizer.json: sabit değer). Uymazsa ya da inemezse HATA.
+# Tokenizer daima öğretmeninki (devam noktasındaki de birebir aynı olmalı). Adım sayısı yeni modelin adımıdır (0'dan).
+TEACHER_TAG = "sohbet-kaggle-orta-0086000"
+TEACHER_URL = "https://github.com/Eskay9633/orion-egitim-kampi/releases/download/" + TEACHER_TAG + "/"
+TEACHER_SHA = {"model.bin": "8a580f8c3c38599e90b0cc5f45ffc079773984974fa099790efbc70ddc0a739a",
+               "tokenizer.json": "bbb70d528167b52b9b8d160b66e33ee017a5cdb6b70c77aa8aee82201cfd4c0f"}
 
 
 def sh(*a):
     print("+", " ".join(a), flush=True)
     subprocess.run(a, check=True)
+
+
+def sha256(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def fetch_teacher(dst):
+    """Öğretmen (86000) dosyalarını indirir ve sha256 ile doğrular; her hata oturumu DURDURUR (sessiz geri dönüş yok)."""
+    import json
+    import time
+    os.makedirs(dst, exist_ok=True)
+    for name in ("manifest.json", "model.bin", "tokenizer.json"):
+        err = None
+        for attempt in range(1, 4):
+            try:
+                urllib.request.urlretrieve(TEACHER_URL + name, f"{dst}/{name}")
+                err = None
+                break
+            except Exception as e:
+                err = e
+                print(f"ORION: öğretmen {name} indirilemedi (deneme {attempt}/3): {e!r}", flush=True)
+                time.sleep(10 * attempt)
+        if err is not None:
+            raise SystemExit(f"ORION HATA: öğretmen {name} indirilemedi: {err!r}")
+    man = json.load(open(f"{dst}/manifest.json", encoding="utf-8"))
+    if man.get("sha256") != TEACHER_SHA["model.bin"]:
+        raise SystemExit(f"ORION HATA: öğretmen manifest sha256 beklenenden farklı: {man.get('sha256')}")
+    for name, want in TEACHER_SHA.items():
+        got = sha256(f"{dst}/{name}")
+        if got != want:
+            raise SystemExit(f"ORION HATA: öğretmen {name} sha256 uymuyor: {got} != {want}")
+    print(f"ORION: öğretmen {TEACHER_TAG} indirildi ve doğrulandı (adım {man.get('step')}, ppl {man.get('val_ppl_int8')})",
+          flush=True)
+    return dst
 
 
 sh("git", "clone", "--depth", "1", REPO, "/kaggle/working/src")
@@ -45,6 +92,7 @@ except Exception as e:
         raise SystemExit(f"ORION HATA: devam checkpoint'i indirilemedi: {e!r}")
     print("önceki checkpoint yok (ilk oturum):", e, flush=True)
     prev = ""
+teacher = fetch_teacher("/kaggle/tmp/teacher") if SIZE == "buyuk" else ""
 tok = ""
 if prev and TOK_URL.startswith("http"):
     try:
@@ -52,6 +100,11 @@ if prev and TOK_URL.startswith("http"):
         tok = "/kaggle/tmp/prev-tokenizer.json"
     except Exception as e:
         print("tokenizer indirilemedi:", e, flush=True)
+if teacher:
+    # Büyük beyin: tokenizer daima öğretmeninki; devam noktasının tokenizer'ı farklıysa (ya da inmediyse) DUR
+    if prev and (not tok or sha256(tok) != TEACHER_SHA["tokenizer.json"]):
+        raise SystemExit("ORION HATA: devam noktasının tokenizer'ı öğretmeninkiyle aynı değil (ya da inmedi)")
+    tok = f"{teacher}/tokenizer.json"
 if prev and not tok:
     # Farklı tokenizer'la devam etmek modeli bozar: sıfırdan başla
     print("UYARI: önceki tokenizer yok; checkpoint kullanılmadan sıfırdan eğitilecek", flush=True)
@@ -96,11 +149,16 @@ if tok:
 if extra:
     prep += ["--extra-dialogs", extra]
 sh(*prep)
-lr, dfrac = (FT_LR, FT_DIALOG_FRAC) if extra else ("5e-4", "0.25")
+# Büyük beyin her zaman ince ayar ayarlarıyla (büyütülmüş, eğitilmiş başlangıç) ve sınavla eğitilir
+ft = bool(extra or teacher)
+lr, dfrac = (FT_LR, FT_DIALOG_FRAC) if ft else ("5e-4", "0.25")
 args = [sys.executable, "-m", "orion_core.chat", "train", "--data", data, "--out", f"{out}/chat-run", "--size", SIZE,
         "--steps", STEPS, "--batch", BATCH, "--budget-min", BUDGET_MIN, "--lr", lr, "--dialog-frac", dfrac]
-if extra:
+if ft:
     args += ["--exam-every", FT_EXAM_EVERY]
+if teacher:
+    # İlk oturum (ckpt yok): 86000'den büyüt, adım 0; sonraki oturumlar ckpt'den devam (büyütme yok sayılır)
+    args += ["--teacher", teacher, "--init-grown-from", teacher]
 if prev:
     args += ["--resume-from", prev]
 sh(*args)

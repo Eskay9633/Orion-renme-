@@ -234,13 +234,20 @@ class Windows:
         self.dialog_frac = dialog_frac
 
     def batch(self, n: int) -> tuple[torch.Tensor, torch.Tensor]:
-        xs = []
+        x, y, _ = self.batch_mask(n)
+        return x, y
+
+    def batch_mask(self, n: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """(x, y, is_dialog): is_dialog[i] = satır diyalog akışından mı (damıtma yalnız bu satırlarda)."""
+        xs, dm = [], []
         for _ in range(n):
-            src = self.dialog if self.rng.random() < self.dialog_frac else self.train
+            is_d = self.rng.random() < self.dialog_frac
+            src = self.dialog if is_d else self.train
             i = int(self.rng.integers(0, len(src) - self.ctx - 1))
             xs.append(np.asarray(src[i:i + self.ctx + 1], dtype=np.int64))
+            dm.append(is_d)
         t = torch.from_numpy(np.stack(xs))
-        return t[:, :-1], t[:, 1:]
+        return t[:, :-1], t[:, 1:], torch.tensor(dm, dtype=torch.bool)
 
 
 @torch.no_grad()
@@ -268,12 +275,48 @@ def lr_at(step: int, total: int, base: float, warmup: int = 500) -> float:
     return base * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * p)))
 
 
+KD_T, KD_ALPHA = 2.0, 0.5  # damıtma: sıcaklık ve KL payı (diyalog satırlarında kayıp = (1-α)·CE + α·T²·KL)
+
+
+def _same_tokenizer(model_dir: Path, data: Path, what: str) -> None:
+    """Öğretmen/büyütme kaynağının tokenizer'ı eğitim verisininkiyle BİREBİR aynı olmalı; değilse hata."""
+    a, b = Path(model_dir) / "tokenizer.json", Path(data) / "tokenizer.json"
+    if not a.exists() or a.read_bytes() != b.read_bytes():
+        raise SystemExit(f"ORION HATA: {what} tokenizer'ı ({a}) eğitim verisininkiyle aynı değil")
+
+
+def load_teacher(model_dir: Path, data: Path, dev: torch.device) -> TinyGpt:
+    """Damıtma öğretmeni: model_dir/model.bin (ORN1 int8 → float). Ekran kartında fp16, her zaman eval/no-grad."""
+    from .export import load_quantized
+    _same_tokenizer(model_dir, data, "öğretmen")
+    t = load_quantized(Path(model_dir) / "model.bin").eval()
+    for p in t.parameters():
+        p.requires_grad_(False)
+    return (t.half() if dev.type == "cuda" else t).to(dev)
+
+
+def kd_loss(student_logits: torch.Tensor, teacher_logits: torch.Tensor, T: float = KD_T,
+            reverse: bool = False) -> torch.Tensor:
+    """Satır başına (belirteç ortalaması) T²·KL. Varsayılan Hinton yönü KL(öğretmen‖öğrenci) (ileri KL: öğretmenin
+    tüm dağılımını kapsar); reverse=True: KL(öğrenci‖öğretmen) (kip arayan). Dönen: (satır,) fp32."""
+    s = F.log_softmax(student_logits.float() / T, dim=-1)
+    t = F.log_softmax(teacher_logits.float() / T, dim=-1)
+    p, q = (s, t) if reverse else (t, s)  # KL(p‖q) = Σ e^p (p − q)
+    return (p.exp() * (p - q)).sum(-1).mean(-1) * (T * T)
+
+
 def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: float, dialog_frac: float,
           threads: int = 0, config: dict | None = None, resume_from: Path | None = None, grad_accum: int = 1,
-          save_every: int = 500, exam_every: int = 0) -> dict:
+          save_every: int = 500, exam_every: int = 0, teacher: Path | None = None, init_grown_from: Path | None = None,
+          kd_alpha: float = KD_ALPHA, kd_t: float = KD_T, kd_reverse: bool = False) -> dict:
     """save_every: ckpt.pt + status.json yazma aralığı (erken durdurma için ara durum).
     exam_every > 0: o aralıkla sınav (run_exam, 40 soru, açgözlü çözme) yapılır; exam.jsonl'e yazılır ve en iyi
-    qa_score'lu ağırlıklar best.pt'ye (ckpt.pt biçiminde, export'a verilebilir) kaydedilir. 0 = kapalı (varsayılan)."""
+    qa_score'lu ağırlıklar best.pt'ye (ckpt.pt biçiminde, export'a verilebilir) kaydedilir. 0 = kapalı (varsayılan).
+    init_grown_from: model.bin+tokenizer.json klasörü (ör. orta 86000); ckpt YOKSA ağırlıklar oradan genişlik olarak
+    büyütülür (grow.py, işlev korunur) ve adım 0'dan başlanır. ckpt varsa (devam) yok sayılır.
+    teacher: model.bin+tokenizer.json klasörü; verilirse YALNIZCA diyalog satırlarında damıtma: kayıp =
+    (1-kd_alpha)·CE + kd_alpha·T²·KL (Vikipedi satırları düz CE; büyük öğrenci dil modelinde öğretmeni aşabilsin,
+    korunacak kazanç diyalog/kişilik davranışı). Öğretmen fp16 (ekran kartı), no-grad."""
     if threads:
         torch.set_num_threads(threads)
     out.mkdir(parents=True, exist_ok=True)
@@ -297,7 +340,20 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
         step = ck["step"]
         cfg = model.config
         print(f"devam: adım {step}", flush=True)
+    elif init_grown_from is not None:
+        from .grow import grow_from_dir
+        _same_tokenizer(init_grown_from, data, "büyütme kaynağı")
+        model = grow_from_dir(Path(init_grown_from), {k: v for k, v in cfg.to_dict().items() if k != "vocab_size"})
+        cfg = model.config
+        opt = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.1)
+        print(f"büyütüldü: {init_grown_from} → {model.n_params():,} parametre, adım 0", flush=True)
     model.to(dev)
+    tmodel = load_teacher(Path(teacher), data, dev) if teacher is not None else None
+    if tmodel is not None:
+        if tmodel.config.vocab_size != cfg.vocab_size or tmodel.config.ctx < cfg.ctx:
+            raise SystemExit("ORION HATA: öğretmen sözlüğü/bağlamı öğrenciyle uyumsuz")
+        print(f"öğretmen: {teacher} ({tmodel.n_params():,} parametre), T={kd_t} α={kd_alpha}"
+              f"{' ters KL' if kd_reverse else ''}, yalnız diyalog satırları", flush=True)
     # Optimizer durumu da aynı cihaza taşınsın
     for st in opt.state.values():
         for k, v in st.items():
@@ -327,6 +383,11 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
         st = {"step": step, "target_steps": steps, "done": step >= steps, "train_loss": ema,
               "tokens_seen": step * batch * grad_accum * cfg.ctx, "params": model.n_params(), "device": str(dev),
               "final": final}
+        if tmodel is not None:
+            st["distill"] = {"teacher": str(teacher), "T": kd_t, "alpha": kd_alpha, "reverse": kd_reverse,
+                             "rows": "dialog", "kd_loss": kd_ema}
+        if init_grown_from is not None:
+            st["init_grown_from"] = str(init_grown_from)
         if vl is not None:
             st.update(val_loss=vl, val_ppl=math.exp(vl) if vl == vl else None)
         if exams:
@@ -348,17 +409,32 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
         print(f"sınav adım {step}: {e['qa_score']:.3f}{' (en iyi)' if is_best else ''}", flush=True)
 
     model.train()
-    ema = None
+    ema = kd_ema = None
     while step < steps:
         for g in opt.param_groups:
             g["lr"] = lr_at(step, steps, lr)
         opt.zero_grad(set_to_none=True)
         for _ in range(grad_accum):
-            x, y = win.batch(batch)
+            x, y, dmask = win.batch_mask(batch)
             x, y = x.to(dev, non_blocking=True), y.to(dev, non_blocking=True)
             with torch.autocast(device_type=dev.type, dtype=torch.float16, enabled=use_amp):
                 logits = model(x)
-                loss = F.cross_entropy(logits.float().reshape(-1, logits.size(-1)), y.reshape(-1)) / grad_accum
+                if tmodel is None:
+                    loss = F.cross_entropy(logits.float().reshape(-1, logits.size(-1)), y.reshape(-1)) / grad_accum
+                else:
+                    ce = F.cross_entropy(logits.float().reshape(-1, logits.size(-1)), y.reshape(-1),
+                                         reduction="none").view(y.shape).mean(-1)  # satır başına
+                    row = ce
+                    dm = dmask.to(dev)
+                    if bool(dm.any()):
+                        with torch.no_grad():
+                            tl = tmodel(x[dm])
+                        kd = kd_loss(logits[dm], tl, kd_t, kd_reverse)
+                        row = ce.clone()
+                        row[dm] = (1 - kd_alpha) * ce[dm] + kd_alpha * kd
+                        kv = float(kd.mean().detach())
+                        kd_ema = kv if kd_ema is None else 0.98 * kd_ema + 0.02 * kv
+                    loss = row.mean() / grad_accum
             scaler.scale(loss).backward()
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -368,7 +444,7 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
         step += 1
         ema = loss.item() if ema is None else 0.98 * ema + 0.02 * loss.item()
         if step % 50 == 0:
-            msg = f"adım {step} kayıp {ema:.3f} süre {time.time() - t0:.0f}s"
+            msg = f"adım {step} kayıp {ema:.3f}{f' kd {kd_ema:.3f}' if kd_ema is not None else ''} süre {time.time() - t0:.0f}s"
             print(msg, flush=True)
             log.write(msg + "\n"); log.flush()
         if exam_every and step % exam_every == 0:
@@ -513,6 +589,9 @@ def export_chat(run: Path, data: Path, out: Path, ckpt_name: str = "ckpt.pt", co
                 "params": m.n_params(), "step": status.get("step"), "tokens_seen": status.get("tokens_seen"),
                 "val_loss_int8": vl, "val_ppl_int8": math.exp(vl) if vl == vl else None, "persona_ok": persona_ok, "qa_score": qa_ok,
                 "data": json.loads((data / "data.json").read_text()) if (data / "data.json").exists() else {}}
+    for k in ("distill", "init_grown_from"):  # büyütme/damıtma ayarları (status.json'dan, rapor için)
+        if status.get(k) is not None:
+            manifest[k] = status[k]
     mk = data / "mkqa-eval.jsonl"
     if mk.exists():  # MKQA ayrılmış soruları: YALNIZCA rapor (chat-model-floor.json'da kapısı yok)
         rows = [json.loads(x) for x in mk.read_text(encoding="utf-8").splitlines() if x.strip()][:MKQA_EVAL_N]
@@ -560,6 +639,11 @@ def main(argv=None) -> None:
     t.add_argument("--grad-accum", type=int, default=1)
     t.add_argument("--save-every", type=int, default=500, help="ckpt.pt + status.json aralığı (adım)")
     t.add_argument("--exam-every", type=int, default=0, help=">0: bu aralıkla sınav; en iyisi best.pt (0 = kapalı)")
+    t.add_argument("--teacher", help="damıtma öğretmeni: model.bin+tokenizer.json klasörü (yalnız diyalog satırları)")
+    t.add_argument("--init-grown-from", help="ckpt yoksa bu klasördeki model.bin'den genişlik büyütüp adım 0'dan başla")
+    t.add_argument("--kd-alpha", type=float, default=KD_ALPHA)
+    t.add_argument("--kd-t", type=float, default=KD_T)
+    t.add_argument("--kd-reverse", action="store_true", help="KL(öğrenci‖öğretmen) (varsayılan: Hinton, KL(öğretmen‖öğrenci))")
     e = sub.add_parser("export")
     e.add_argument("--run", required=True)
     e.add_argument("--data", required=True)
@@ -573,7 +657,9 @@ def main(argv=None) -> None:
     elif a.cmd == "train":
         train(Path(a.data), Path(a.out), a.steps, a.budget_min, a.batch, a.lr, a.dialog_frac, a.threads,
               config=SIZES[a.size], resume_from=Path(a.resume_from) if a.resume_from else None, grad_accum=a.grad_accum,
-              save_every=a.save_every, exam_every=a.exam_every)
+              save_every=a.save_every, exam_every=a.exam_every, teacher=Path(a.teacher) if a.teacher else None,
+              init_grown_from=Path(a.init_grown_from) if a.init_grown_from else None, kd_alpha=a.kd_alpha,
+              kd_t=a.kd_t, kd_reverse=a.kd_reverse)
     else:
         export_chat(Path(a.run), Path(a.data), Path(a.out), a.ckpt)
 

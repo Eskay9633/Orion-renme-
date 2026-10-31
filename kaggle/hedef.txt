@@ -1,1 +1,1 @@
-orta 105000 otomatik
+buyuk 40000 otomatik

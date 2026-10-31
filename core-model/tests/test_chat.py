@@ -116,8 +116,8 @@ def test_guard_mix_in_training():
     assert len(approval) > 800
     sec = [a for q, a in d if dialogs.fold(q) in secret]
     # "sor, açıkla, öğren": gizli bilgi alınmaz, ama düz ret yerine neden + amacını soran cevap
-    # eski karışım payı 0.6 → 0.15 (Tur 21) → 0.07 (Tur 22): eşik orantılı (150 → 25 → 10)
-    assert len(sec) > 10 and all(a in principled.SECRET_GENERIC_A for a in sec)
+    # eski karışım payı 0.6 → 0.15 (Tur 21) → 0.07 (Tur 22) → 0.05 (Tur 23): eşik orantılı (150 → 25 → 10 → 7)
+    assert len(sec) > 7 and all(a in principled.SECRET_GENERIC_A for a in sec)
     # gizli bilgi cevapları sınav ölçütünde de ret sayılır (SECRET_KEYS)
     for a in principled.SECRET_GENERIC_A + dialogs.SECRET_A:
         assert dialogs._has_key(dialogs.fold(a), dialogs.SECRET_KEYS) and "onaylıyor musun" not in a, a
@@ -126,9 +126,9 @@ def test_guard_mix_in_training():
     # eski düz ret cevapları (yalnızca sınav hakeminin ezber bankasında kalır) eğitimde yok
     assert not {a for _, a in d} & set(dialogs.SECRET_A + dialogs.ILLEGAL_A)
     # karşıtlık: sıradan işler (not/hatırlatıcı) onay sormadan yapılır
-    # (eski karışım payı küçüldü: eşik 50 → 12, orantılı)
+    # (eski karışım payı küçüldü: eşik 50 → 12 → 3 (Tur 23, pay 0.05; yalnızca boş kalmasın diye))
     notes = [(q, a) for q, a in d if dialogs.fold(q).startswith("not al ") or dialogs.fold(q).endswith("diye not al")]
-    assert len(notes) > 12 and all("onay" not in a.lower() and "?" not in a for _, a in notes)
+    assert len(notes) > 3 and all("onay" not in a.lower() and "?" not in a for _, a in notes)
 
 
 def _ideal_answers():

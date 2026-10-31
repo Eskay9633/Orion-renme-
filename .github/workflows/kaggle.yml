@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       size:
-        description: 'Beyin boyutu: orta (~42M, ~5 saat) ya da buyuk (~92M, ~25 saat, 2-3 oturum)'
+        description: 'Beyin boyutu: orta (~42M) ya da buyuk (~92M; orta 86000 modelinden büyütülür ve ona damıtılır)'
         default: 'orta'
       steps:
-        description: 'Hedef adım (orta: 55000, buyuk: 110000)'
+        description: 'Hedef adım (buyuk: yeni modelin adımı, ör. 40000; oturum başına 640 dk, gerekirse çok oturum)'
         default: '55000'
       ceviri:
         description: 'Çeviri verisi: otomatik (en son ceviri-* Release, yoksa hiç), yok, ya da bir etiket (ceviri-...)'
@@ -89,13 +89,13 @@ jobs:
           TAG="sohbet-kaggle-${{ steps.st.outputs.size }}-$(printf '%07d' $STEP)"
           if gh release view "$TAG" >/dev/null 2>&1; then echo "Zaten yayınlandı: $TAG"; echo "next=start" >> "$GITHUB_OUTPUT"
           else
-            NOTES=$(python -c "import json;m=json.load(open('$M'));print(f\"Kaggle GPU · {m['params']:,} parametre · adım {m['step']} · ppl {m['val_ppl_int8']:.1f} · kişilik {m['persona_ok']} · sınav {m.get('qa_score')}\")")
+            NOTES=$(python -c "import json;m=json.load(open('$M'));print(f\"Kaggle GPU · {m['params']:,} parametre · adım {m['step']} · ppl {m['val_ppl_int8']:.1f} · kişilik {m['persona_ok']} · sınav {m.get('qa_score')} · bilişsel {m.get('cog_bilissel')} · ilkesel {m.get('cog_ilkesel')}\" + (f\" · damıtma öğretmeni {m['distill']['teacher']} (T {m['distill']['T']}, α {m['distill']['alpha']})\" if m.get('distill') else ''))")
             # Eğitim içi sınavın en iyi ağırlıkları (yalnız çeviri verisiyle ince ayarda; erken durdurma için)
             BEST=$(dirname "$EXP")/chat-export-best; EXTRA_FILES=""
             if [ -f "$BEST/manifest.json" ]; then
               cp "$BEST/model.bin" kout/model-best.bin; cp "$BEST/manifest.json" kout/manifest-best.json
               EXTRA_FILES="kout/model-best.bin kout/manifest-best.json"
-              NOTES="$NOTES · en iyi ara sınav: $(python -c "import json;m=json.load(open('$BEST/manifest.json'));print(f\"adım {m['step']} sınav {m.get('qa_score')}\")") (model-best.bin)"
+              NOTES="$NOTES · en iyi ara sınav: $(python -c "import json;m=json.load(open('$BEST/manifest.json'));print(f\"adım {m['step']} sınav {m.get('qa_score')} bilişsel {m.get('cog_bilissel')} ilkesel {m.get('cog_ilkesel')}\")") (model-best.bin)"
             fi
             CEV=$(python -c "import json;d=json.load(open('$M')).get('data',{});print(d.get('ceviri_cift',''))")
             if [ -n "$CEV" ]; then NOTES="$NOTES · çeviri çifti $CEV"; else NOTES="$NOTES · çeviri verisi KULLANILMADI"; fi

@@ -90,7 +90,7 @@ def test_memory_line_rules():
 def test_memory_lines_in_training_mix_valid(mix):
     d, _ = mix
     lines = [x.split("\n", 1)[0] for x in d if x.startswith("Hafıza: ")]
-    assert len(lines) > 0.12 * N
+    assert len(lines) > (dialogs.MIX["memory"] - 0.02) * N
     assert all(M.validate_line(l, M.PROPER) == [] for l in lines)
 
 
@@ -289,7 +289,9 @@ def test_mix_shares_within_tolerance(mix):
     for k, v in dialogs.MIX.items():
         assert abs(sh[k] - v) < 0.02, (k, sh)
     assert abs(sum(dialogs.MIX.values()) - 1) < 1e-9
-    assert dialogs.PRINCIPLED_SHARE == pytest.approx(0.22)
+    assert dialogs.PRINCIPLED_SHARE == pytest.approx(0.35)
+    assert dialogs.MIX == {"personality": 0.30, "memory": 0.10, "principled": 0.35, "reasoning": 0.15, "route": 0.05,
+                           "legacy": 0.05}
 
 
 def test_determinism():
