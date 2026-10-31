@@ -207,7 +207,7 @@ FEW = ["Kullanıcı: merhaba\nOrion: Merhaba, nasıl yardımcı olabilirim?"] * 
 
 def test_chat_extra_dialogs(tmp_path, monkeypatch):
     from orion_core import dialogs
-    monkeypatch.setattr(chat, "persona_dialogues", lambda n: FEW)  # hız: 60000 kişilik diyaloğu kodlamaya gerek yok
+    monkeypatch.setattr(chat, "persona_dialogues", lambda n, **k: FEW)  # hız: 60000 kişilik diyaloğu kodlamaya gerek yok
     exam_q = dialogs.QA_TESTS[0][0]
     rows = [
         {"q": "Nasıl daha iyi uyuyabilirim?", "a": "Her gece aynı saatte yatmaya çalış ve ekranlardan uzak dur.",
@@ -242,7 +242,7 @@ def test_chat_extra_dialogs(tmp_path, monkeypatch):
 
 
 def test_train_exam_best(tmp_path, monkeypatch):
-    monkeypatch.setattr(chat, "persona_dialogues", lambda n: FEW)
+    monkeypatch.setattr(chat, "persona_dialogues", lambda n, **k: FEW)
     docs = ["Türkiye güzel bir ülkedir ve çok kalabalıktır. " * 20] * 30
     data = tmp_path / "d"
     chat.prepare(data, 10**9, vocab=300, texts=docs, open_data=False)

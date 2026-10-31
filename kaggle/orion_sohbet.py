@@ -88,6 +88,8 @@ if EXTRA_URL.startswith("http"):
             time.sleep(10 * attempt)
     if not extra:
         raise SystemExit(f"ORION HATA: çeviri verisi istendi ama indirilemedi: {err!r}")
+# MKQA Türkçe bilgi soruları (CC BY-SA 3.0) chat.prepare içinde sabit commit adresinden sha256 doğrulamasıyla iner;
+# inemezse ya da hash uymazsa prepare hata verir (sessiz atlama yok). Ek argüman gerekmez.
 prep = [sys.executable, "-m", "orion_core.chat", "prepare", "--out", data]
 if tok:
     prep += ["--tokenizer", tok]

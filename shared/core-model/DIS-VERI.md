@@ -35,3 +35,22 @@ indirilir (`python -m orion_core.massive prepare --download`); depoya veri girme
 MASSIVE `dev`/`test`, xSID ve depodaki elle yazılmış/kör ölçüm kümelerinde (normalize edilmiş hâliyle) geçen hiçbir cümle
 eğitime girmez; eğitim yükleyicisi bunu her çalışmada yeniden denetler, çakışma varsa iş durur
 (`core-model/tests/test_massive.py`).
+
+# Dış veri kaynakları ve atıf (sohbet beyni)
+
+## MKQA — tr
+
+- Kaynak: https://raw.githubusercontent.com/apple/ml-mkqa/f964fe1bac4d580cee3d4928572df1f676f8e656/dataset/mkqa.jsonl.gz
+  (github.com/apple/ml-mkqa, commit `f964fe1bac4d580cee3d4928572df1f676f8e656`)
+- sha256: `f77ac6bf6306e98816c5c047880db71a3c67d2f1491b169896d63e9bb14ef3d3`
+- Lisans: **CC BY-SA 3.0** (veri; kod Apache-2.0) — doğrulandı: depo README "License" bölümü ("dataset is licensed
+  under CC BY-SA 3.0 Unported"). Lisans metni: https://creativecommons.org/licenses/by-sa/3.0/
+- Atıf: MKQA © Apple Inc. — Shayne Longpre, Yi Lu, Joachim Daiber (2021), "MKQA: A Linguistically Diverse Benchmark for
+  Multilingual Open Domain Question Answering" (TACL). Natural Questions (Google, CC BY-SA 3.0) sorularının çevirisidir.
+- Değişiklikler: yalnızca `tr` sorgu ve cevapları; `long_answer` ve boş/bozuk cevaplar atıldı; kısa cevap Orion'un
+  sesiyle bir cümleye sarıldı ("Bildiğim kadarıyla: X.") — cevaba veride olmayan bilgi EKLENMEZ; sayılar Türkçe ondalıkla,
+  tarihler Türkçe ay adıyla yazıldı; zamana bağlı sorulara "bu bilgi değişmiş olabilir" notu eklendi; en çok 400
+  `unanswerable` soru dürüst "bilmiyorum, araştırayım" cevabına çevrildi; sınav soruları ve yakın biçimleri atıldı.
+- Kullanım: ~6.100 soru sohbet beyninin diyalog akışında (eğitim, `chat.prepare`; indirme sabit adres + sha256, uymazsa
+  iş durur); 1.000 soru ayrılır (`mkqa-eval.jsonl`) ve yalnızca **rapor** amaçlı değerlendirilir (manifest
+  `mkqa_eval`, kapı eşiği yok). Türetilen eğitim verisi de CC BY-SA 3.0 lisanslıdır.

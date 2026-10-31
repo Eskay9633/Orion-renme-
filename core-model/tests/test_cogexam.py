@@ -217,6 +217,8 @@ def _leaks(questions) -> list[tuple[str, str]]:
 
 
 def _user_turns(text):
+    if text.startswith("Hafıza: "):  # hafıza notlu belge: ilk satır not satırıdır
+        text = text.split("\n", 1)[1]
     return [t.split("\nOrion: ")[0] for t in text[len("Kullanıcı: "):].split("\nKullanıcı: ")]
 
 

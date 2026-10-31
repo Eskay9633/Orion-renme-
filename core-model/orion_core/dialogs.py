@@ -11,6 +11,9 @@
 4) principled.py: ilke temelli diyaloglar (onay, gizli bilgi, yasa dışı, kimlik, yetenek, bilmediğini kabul, sıcak
    sohbet, karşıtlık); kişilik diyaloglarının PRINCIPLED_SHARE kadarı. Riskli isteklerde düz ret yok: "sor, açıkla,
    öğren" ve çok turlu "hayır"/"evet" devamı (turlar alt alta format_dialog). Sınava yakın biçimler near_exam ile atılır.
+5) Tur 21 (sahibinin yönü: önce KİŞİLİK, kurumsal değil kişisel ses): persona_dialogues karışımı MIX'tir —
+   kişilik (personality.py) %45, hafıza notlu (memory_notes.py; "Hafıza: …" satırıyla başlayan belge) %15,
+   ilke temelli %15, akıl yürütme (reasoning.py) %10, eski karışım %15. Gerçekleşen paylar: mix_shares(stats).
 """
 from __future__ import annotations
 
@@ -362,13 +365,13 @@ APPROVAL_A = [
     "{Kind}; önce onayını almam gerekiyor. {Act} onaylıyor musun? Onaylarsan {prep}.",
     "Bunu yapmadan önce sana sormalıyım: {act} onaylıyor musun? Onaylarsan {prep}.",
     "{Kind}, o yüzden kendi başıma yapmam. {Act} onaylıyor musun?",
-    "Önemli bir işlem olduğu için iznini istiyorum. {Act} onaylıyor musun? Onaylarsan {prep}.",
+    "Bunu senin sözün olmadan yapmam, biliyorsun; iznini istiyorum. {Act} onaylıyor musun? Onaylarsan {prep}.",
     "Önce onayın lazım: {act} istiyor musun? Onaylarsan {prep}.",
     "{Kind}. Senin onayın olmadan adım atmam. {Act} gerçekten istiyor musun?",
     "Emin olmak istiyorum: {act} onaylıyor musun? Onaylarsan {prep}.",
-    "Bu önemli bir iş, önce sana soruyorum. {Act} onaylıyor musun?",
+    "Bu önemli, o yüzden önce sana soruyorum. {Act} onaylıyor musun?",
     "{Kind}; iznin olmadan yapmam. {Act} onaylar mısın? Onaylarsan {prep}.",
-    "Onayını almadan bunu yapmam. {Act} onaylıyor musun? Onaylarsan {prep}.",
+    "Senin onayını almadan buna dokunmam. {Act} onaylıyor musun? Onaylarsan {prep}.",
     "{Kind}. Karar senin: {act} onaylıyor musun? Onaylarsan {prep}.",
     "Önce sormam gerek: {act} onaylıyor musun? İzin verirsen {prep}.",
     "{Kind}, bu yüzden önce onayını alayım. {Act} istiyor musun? Onaylarsan {prep}.",
@@ -489,29 +492,70 @@ def _variants(q: str, rng: random.Random) -> str:
     return q + (end if rng.random() < 0.7 else "")
 
 
-# Kişilik diyaloglarının bu kadarı ilke temelli üreticiden (principled.py) gelir; kalanı aşağıdaki eski karışım.
-PRINCIPLED_SHARE = 0.4
+# Sohbet beyni kişilik karışımı (Tur 21, sahibinin yönü: önce KİŞİLİK). Paylar persona_dialogues'ta uygulanır;
+# gerçekleşen sayılar stats ile (mix_shares) raporlanır. Kurallar korunur ama payı azaldı (0.4 → 0.15).
+MIX = {"personality": 0.45, "memory": 0.15, "principled": 0.15, "reasoning": 0.10, "legacy": 0.15}
+PRINCIPLED_SHARE = MIX["principled"]
+_MIX_PREFIX = {"personality": "kisilik:", "memory": "hafiza:", "reasoning": "akil:"}
+
+
+def mix_shares(stats: dict) -> dict:
+    """persona_dialogues(stats=...) sayılarından karışım payları: {"personality": 0.45, ...}."""
+    total = sum(stats.values()) or 1
+    out = {k: 0 for k in MIX}
+    for cat, n in stats.items():
+        branch = next((b for b, p in _MIX_PREFIX.items() if cat.startswith(p)), None)
+        out[branch or ("legacy" if cat == "legacy" else "principled")] += n
+    return {k: v / total for k, v in out.items()}
+
+
+def _turns_ok(turns: list[tuple[str, str]]) -> bool:
+    """Her kullanıcı turu sınav dışı: QA_TESTS (aynısı/yakını) ve bilişsel sınav (near_cogexam)."""
+    from .cogexam import near_cogexam
+    return not any(is_exam_question(q) or near_exam(q) or near_cogexam(q) for q, _ in turns)
 
 
 def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[str]:
-    """Konuya bağlı, çeşitli kişilik/yetenek diyalogları. Sınav soruları (QA_TESTS) hiç üretilmez; ilke temelli
-    üreticiden gelenlerde sınav sorusuna çok yakın biçimler (near_exam) de atılır; bilişsel sınavın (cogexam)
-    mesajlarına yakın biçimler her iki kolda da atılır (near_cogexam). Eski karışım eski kurala
-    (is_exam_question) bağlı kalır: "iyi geceler", "teşekkür ederim" gibi temel kalıplar orada zaten vardı.
-    n: üretilecek diyalog sayısı (tam olarak n). stats verilirse kategori sayıları yazılır (eski karışım: "legacy")."""
-    from . import principled
+    """Sohbet beyninin kendi diyalogları (MIX payları): kişilik (personality.py), hafıza notlu (memory_notes.py;
+    belge "Hafıza: …\\n" satırıyla başlar), ilke temelli (principled.py), akıl yürütme (reasoning.py) ve eski
+    kişilik/yetenek karışımı. Sınav soruları (QA_TESTS) hiç üretilmez; yeni kollarda ve ilke kolunda sınav sorusuna
+    çok yakın biçimler (near_exam) ve bilişsel sınavın yakın biçimleri (near_cogexam) her kullanıcı turunda atılır.
+    Eski karışım eski kurala (is_exam_question + near_cogexam) bağlı kalır.
+    n: üretilecek diyalog sayısı (tam olarak n). stats verilirse kategori sayıları yazılır (eski karışım: "legacy",
+    kişilik "kisilik:*", hafıza "hafiza:*", akıl "akil:*", ilke kolu kendi kategori adlarıyla)."""
+    from . import memory_notes, personality, principled, reasoning
     from .cogexam import near_cogexam  # bilişsel sınavın (cognitive-exam.jsonl) yakın biçimleri de eğitime girmez
     rng = random.Random(seed)
     out: list[str] = []
+    branches, weights = list(MIX), list(MIX.values())
+
+    def add(cat: str, text: str):
+        out.append(text)
+        if stats is not None:
+            stats[cat] = stats.get(cat, 0) + 1
+
     while len(out) < n:
-        if rng.random() < PRINCIPLED_SHARE:
+        branch = rng.choices(branches, weights=weights)[0]
+        if branch == "principled":
             # soru son halinde (kendi büyük harf/soru işareti); çok turlu olabilir ("hayır"/"evet" devamı)
             cat, turns = principled.principled_turns(rng)
-            if any(is_exam_question(q) or near_exam(q) or near_cogexam(q) for q, _ in turns):
-                continue
-            out.append("\n".join(format_dialog(q, a) for q, a in turns))
-            if stats is not None:
-                stats[cat] = stats.get(cat, 0) + 1
+            if _turns_ok(turns):
+                add(cat, "\n".join(format_dialog(q, a) for q, a in turns))
+            continue
+        if branch == "personality":
+            cat, turns = personality.personality_turns(rng)
+            if _turns_ok(turns):
+                add("kisilik:" + cat, "\n".join(format_dialog(q, a) for q, a in turns))
+            continue
+        if branch == "reasoning":
+            cat, turns = reasoning.reasoning_turns(rng)
+            if _turns_ok(turns):
+                add("akil:" + cat, "\n".join(format_dialog(q, a) for q, a in turns))
+            continue
+        if branch == "memory":
+            d = memory_notes.memory_dialog(rng)
+            if _turns_ok(d.turns):
+                add("hafiza:" + d.cat, d.line + "\n" + "\n".join(format_dialog(q, a) for q, a in d.turns))
             continue
         r = rng.random()
         if r < 0.18:

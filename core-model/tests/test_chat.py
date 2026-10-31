@@ -32,9 +32,15 @@ def test_clean_article_cuts_references():
     assert "Kaynakça" not in t and "Kuruldu." in t
 
 
+def _body(x):
+    """Hafıza notlu belgelerde ilk satır ("Hafıza: …") atlanır."""
+    return x.split("\n", 1)[1] if x.startswith("Hafıza: ") else x
+
+
 def test_persona_dialogues_format():
-    d = chat.persona_dialogues(50)
-    assert all(x.startswith("Kullanıcı: ") and "\nOrion: " in x for x in d)
+    d = chat.persona_dialogues(500)
+    assert all(_body(x).startswith("Kullanıcı: ") and "\nOrion: " in x for x in d)
+    assert any(x.startswith("Hafıza: ") for x in d)
 
 
 def test_persona_dialogues_are_diverse_and_question_dependent():
@@ -56,7 +62,7 @@ def test_exam_questions_never_in_training():
     from orion_core import dialogs
     d = dialogs.persona_dialogues(60000, seed=7)  # prepare() ile aynı tohum ve boyut
     # çok turlu diyaloglarda her kullanıcı turu denetlenir
-    qs = {dialogs.fold(t.split("\nOrion: ")[0]) for x in d for t in x[len("Kullanıcı: "):].split("\nKullanıcı: ")}
+    qs = {dialogs.fold(t.split("\nOrion: ")[0]) for x in d for t in _body(x)[len("Kullanıcı: "):].split("\nKullanıcı: ")}
     assert not (qs & dialogs.TEST_QUESTIONS)
     assert not any(dialogs.is_exam_question(q) for q in qs)
     # açık veri süzgeci de sınav sorusunu (büyük/küçük harf, noktalama farkıyla) atar
@@ -76,7 +82,7 @@ def test_exam_size_and_kinds():
 
 def _qa(x):
     """İlk tur (soru, cevap); çok turlu diyaloglarda sonraki turlar ("\nKullanıcı: ...") atlanır."""
-    q, a = x[len("Kullanıcı: "):].split("\nKullanıcı: ")[0].split("\nOrion: ")
+    q, a = _body(x)[len("Kullanıcı: "):].split("\nKullanıcı: ")[0].split("\nOrion: ")
     return q, a
 
 
@@ -110,7 +116,8 @@ def test_guard_mix_in_training():
     assert len(approval) > 800
     sec = [a for q, a in d if dialogs.fold(q) in secret]
     # "sor, açıkla, öğren": gizli bilgi alınmaz, ama düz ret yerine neden + amacını soran cevap
-    assert len(sec) > 150 and all(a in principled.SECRET_GENERIC_A for a in sec)
+    # eski karışım payı 0.6 → 0.15 (Tur 21): eşik orantılı (150 → 25)
+    assert len(sec) > 25 and all(a in principled.SECRET_GENERIC_A for a in sec)
     # gizli bilgi cevapları sınav ölçütünde de ret sayılır (SECRET_KEYS)
     for a in principled.SECRET_GENERIC_A + dialogs.SECRET_A:
         assert dialogs._has_key(dialogs.fold(a), dialogs.SECRET_KEYS) and "onaylıyor musun" not in a, a
@@ -119,8 +126,9 @@ def test_guard_mix_in_training():
     # eski düz ret cevapları (yalnızca sınav hakeminin ezber bankasında kalır) eğitimde yok
     assert not {a for _, a in d} & set(dialogs.SECRET_A + dialogs.ILLEGAL_A)
     # karşıtlık: sıradan işler (not/hatırlatıcı) onay sormadan yapılır
+    # (eski karışım payı küçüldü: eşik 50 → 12, orantılı)
     notes = [(q, a) for q, a in d if dialogs.fold(q).startswith("not al ") or dialogs.fold(q).endswith("diye not al")]
-    assert len(notes) > 50 and all("onay" not in a.lower() and "?" not in a for _, a in notes)
+    assert len(notes) > 12 and all("onay" not in a.lower() and "?" not in a for _, a in notes)
 
 
 def _ideal_answers():
@@ -215,7 +223,7 @@ def test_qa_score_penalties_are_strict():
 def test_training_format_unchanged_and_prompt_has_no_trailing_space():
     from orion_core import chat, dialogs
     assert dialogs.format_dialog("Merhaba", "Selam!") == "Kullanıcı: Merhaba\nOrion: Selam!"
-    assert dialogs.persona_dialogues(5, seed=1)[0].startswith("Kullanıcı: ")
+    assert all(_body(x).startswith("Kullanıcı: ") for x in dialogs.persona_dialogues(200, seed=1))
     assert all("\nOrion: " in x for x in dialogs.persona_dialogues(200, seed=1))
     p = chat.prompt_for("Sen kimsin?")
     assert p == "Kullanıcı: Sen kimsin?\nOrion:" and p == p.rstrip()

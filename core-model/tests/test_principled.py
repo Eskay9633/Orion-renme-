@@ -15,7 +15,10 @@ N_PER_CAT = 1500
 
 
 def _turns(x):
-    """Eğitim metni → [(soru, cevap), ...] (çok turlu: turlar "\nKullanıcı: " ile alt alta)."""
+    """Eğitim metni → [(soru, cevap), ...] (çok turlu: turlar "\nKullanıcı: " ile alt alta). Hafıza notlu belgelerin
+    ilk satırı ("Hafıza: …") atlanır."""
+    if x.startswith("Hafıza: "):
+        x = x.split("\n", 1)[1]
     return [tuple(t.split("\nOrion: ")) for t in x[len("Kullanıcı: "):].split("\nKullanıcı: ")]
 
 
@@ -51,10 +54,11 @@ def test_count_and_share():
     st: dict = {}
     d = dialogs.persona_dialogues(20000, seed=7, stats=st)
     assert sum(st.values()) == len(d) == 20000
-    share = 1 - st["legacy"] / len(d)
-    assert 0.35 <= share <= 0.45, share
-    for cat in principled.WEIGHTS:  # her kategori gerçekten karışımda
-        assert st.get(cat, 0) > 100, (cat, st)
+    # Tur 21: ilke kolu 0.4 → 0.15 (sahibinin yönü: önce kişilik); kollar MIX paylarında
+    shares = dialogs.mix_shares(st)
+    assert abs(shares["principled"] - dialogs.PRINCIPLED_SHARE) < 0.02, shares
+    for cat in principled.WEIGHTS:  # her kategori gerçekten karışımda (en küçük pay 0.02 × 0.15 × 20000 = 60)
+        assert st.get(cat, 0) > 25, (cat, st)
 
 
 def test_generator_never_produces_exam_questions_or_near_paraphrases():
@@ -300,12 +304,13 @@ def test_turn_mix_and_format():
         assert abs(one - 0.5) < 0.04 and abs(no - 0.25) < 0.04 and abs(yes - 0.25) < 0.04, (cat, one, no, yes)
         assert one + no + yes == 1.0
     d = dialogs.persona_dialogues(20000, seed=7)
-    multi = [x for x in d if "\nKullanıcı: " in x]
+    multi = [x for x in d if len(_turns(x)) > 1]
     assert len(multi) > 1000
-    for x in multi[:500]:
+    for x in multi[:500]:  # ilke diyalogları 2 tur; kişilik/akıl/hafıza diyalogları 2–3 tur
         turns = _turns(x)
-        assert len(turns) == 2 and all(len(t) == 2 and t[0] and t[1] for t in turns), x
-        assert x == "\n".join(dialogs.format_dialog(q, a) for q, a in turns)
+        assert 2 <= len(turns) <= 3 and all(len(t) == 2 and t[0] and t[1] for t in turns), x
+        body = x.split("\n", 1)[1] if x.startswith("Hafıza: ") else x
+        assert body == "\n".join(dialogs.format_dialog(q, a) for q, a in turns)
 
 
 def test_no_followups_state_learned_reason():

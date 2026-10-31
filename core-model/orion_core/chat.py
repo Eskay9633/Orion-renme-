@@ -85,6 +85,7 @@ def wikipedia_texts(cache: Path, max_chars: int):
 # Kişilik/yetenek diyalogları ve açık lisanslı Türkçe diyaloglar: dialogs.py
 from .dialogs import QA_TESTS, open_dialogues, persona_dialogues, qa_judge, qa_score  # noqa: E402
 from . import dialogs as _dialogs  # noqa: E402
+from . import mkqa as _mkqa  # noqa: E402
 
 EXTRA_LICENSES = {"apache-2.0", "mit", "cc-by-4.0", "cc-by-sa-3.0", "cc-by-sa-4.0"}
 
@@ -152,9 +153,13 @@ def encode_to(path: Path, bpe: BPE, texts) -> int:
 
 
 def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_000_000, texts=None,
-            tokenizer: Path | None = None, open_data: bool = True, extra_dialogs: str | None = None) -> dict:
+            tokenizer: Path | None = None, open_data: bool = True, extra_dialogs: str | None = None,
+            mkqa_src: str | None = "auto") -> dict:
     """tokenizer: önceki eğitimin tokenizer'ı (Kaggle'da kaldığı yerden devam ederken AYNI olmalı).
-    extra_dialogs: ek (ör. çeviri) diyalog jsonl yolu/URL'si; bkz. extra_dialogues. Yoksa davranış değişmez."""
+    extra_dialogs: ek (ör. çeviri) diyalog jsonl yolu/URL'si; bkz. extra_dialogues. Yoksa davranış değişmez.
+    mkqa_src: MKQA Türkçe bilgi soruları ("auto": open_data açıksa sabit commit adresinden indirilir; yol/URL de
+    verilebilir; None: kapalı). sha256 uymazsa ya da indirilemezse HATA (sessiz atlama yok). 1000 soru eğitime
+    girmez, data/mkqa-eval.jsonl'e yazılır (yalnızca rapor)."""
     out.mkdir(parents=True, exist_ok=True)
     raw = out / "raw.txt"
     if not raw.exists():
@@ -164,9 +169,18 @@ def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_00
                 f.write(t.replace("\x00", " ") + "\x00")
     docs = raw.read_text(encoding="utf-8").split("\x00")
     docs = [d for d in docs if d.strip()]
-    dialogs = persona_dialogues(60000)
+    persona_stats: dict = {}
+    dialogs = persona_dialogues(60000, stats=persona_stats)
     open_texts, open_stats = open_dialogues(out / "hf-dialog") if open_data else ([], {})
     extra_texts, extra_stats = extra_dialogues(extra_dialogs, out / "extra") if extra_dialogs else ([], None)
+    if mkqa_src == "auto":
+        mkqa_src = _mkqa.MKQA_URL if open_data else None
+    mkqa_texts, mkqa_stats = [], None
+    if mkqa_src:
+        mkqa_texts, mkqa_eval, mkqa_stats = _mkqa.build(_mkqa.download(out / "mkqa", mkqa_src))
+        with open(out / "mkqa-eval.jsonl", "w", encoding="utf-8") as f:
+            for r in mkqa_eval:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
     if tokenizer is not None and Path(tokenizer).exists() and not (out / "tokenizer.json").exists():
         import shutil
         shutil.copy(tokenizer, out / "tokenizer.json")
@@ -188,12 +202,17 @@ def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_00
         "docs": len(docs), "chars": sum(map(len, docs)),
         "train_tokens": encode_to(out / "train.bin", bpe, docs[n_val:]),
         "val_tokens": encode_to(out / "val.bin", bpe, docs[:n_val]),
-        "dialog_tokens": encode_to(out / "dialog.bin", bpe, dialogs + open_texts + open_texts + extra_texts),
+        "dialog_tokens": encode_to(out / "dialog.bin", bpe, dialogs + open_texts + open_texts + extra_texts + mkqa_texts),
         "persona_dialogs": len(dialogs), "open_dialogs": open_stats,
+        "persona_mix": {k: round(v, 4) for k, v in _dialogs.mix_shares(persona_stats).items()},
+        "persona_categories": dict(sorted(persona_stats.items())),
         "vocab": bpe.vocab_size,
         "source": "Türkçe Vikipedi (wikimedia/wikipedia 20231101.tr, CC BY-SA 3.0/GFDL) + Orion kişilik/yetenek diyalogları + "
                   "CohereForAI/aya_dataset (Apache-2.0) + OpenAssistant/oasst2 (Apache-2.0) Türkçe diyalogları",
     }
+    if mkqa_stats is not None:
+        stats["mkqa"] = mkqa_stats
+        stats["source"] += " + Apple MKQA Türkçe bilgi soruları (CC BY-SA 3.0; github.com/apple/ml-mkqa)"
     if extra_stats is not None:
         stats["ceviri_cift"] = extra_stats["ceviri_cift"]
         stats["ceviri"] = extra_stats
@@ -368,13 +387,26 @@ def train(data: Path, out: Path, steps: int, budget_min: float, batch: int, lr: 
 
 # --------------------------------------------------------------------------- telefona aktarma
 
+MKQA_EVAL_N = 200  # dışa aktarmada sınanan ayrılmış MKQA sorusu (süre için 1000'in ilk 200'ü)
 PERSONA_TESTS = [("Sen kimsin?", "Orion"), ("Merhaba", None), ("Çok sıkıldım", None)]
 # QA_TESTS (dialogs.py): eğitimde geçmeyen soru biçimleri; "doğru soruya doğru cevap" sınavı
 
 
-def prompt_for(question: str) -> str:
-    """Çıkarım istemi; "Orion:" ile biter (sonda boşluk YOK, bkz. modül açıklaması)."""
-    return f"{USER}{question}\n{PROMPT_BOT}"
+MEMORY_PREFIX = "Hafıza: "  # memory_notes.PREFIX ile aynı
+
+
+def prompt_for(question: str, memory: str | None = None) -> str:
+    """Çıkarım istemi; "Orion:" ile biter (sonda boşluk YOK, bkz. modül açıklaması).
+
+    memory: uygulamanın katmanlı hafızasından seçilmiş notlar, "; " ile birleşik ("kızının adı Ela; 34 yaşındasın").
+    Verilirse istem şöyledir (Kotlin ChatBrain ile BİREBİR aynı; ayrıntı docs/PROTOCOL.md "Sohbet beyni istemi"):
+        "Hafıza: <notlar>\nKullanıcı: <soru>\nOrion:"
+    Kurallar (memory_notes.memory_line üretir, validate_line denetler): "Hafıza: " dahil satır <= 160 karakter,
+    en çok 3 not, not <= 70 karakter, notta ";"/satır sonu yok, sonda "." yok. Bu fonksiyon notları KESMEZ; sınırı
+    çağıran uygular. memory None ya da boşsa istem eskisiyle birebir aynıdır ("Kullanıcı: <soru>\nOrion:").
+    Belirteçleme: <bos> + bpe.encode(istem); "Hafıza:" için özel belirteç yok."""
+    head = f"{MEMORY_PREFIX}{memory.strip()}\n" if memory and memory.strip() else ""
+    return f"{head}{USER}{question}\n{PROMPT_BOT}"
 
 
 def clean_reply(raw: str) -> str:
@@ -480,6 +512,12 @@ def export_chat(run: Path, data: Path, out: Path, ckpt_name: str = "ckpt.pt", co
                 "params": m.n_params(), "step": status.get("step"), "tokens_seen": status.get("tokens_seen"),
                 "val_loss_int8": vl, "val_ppl_int8": math.exp(vl) if vl == vl else None, "persona_ok": persona_ok, "qa_score": qa_ok,
                 "data": json.loads((data / "data.json").read_text()) if (data / "data.json").exists() else {}}
+    mk = data / "mkqa-eval.jsonl"
+    if mk.exists():  # MKQA ayrılmış soruları: YALNIZCA rapor (chat-model-floor.json'da kapısı yok)
+        rows = [json.loads(x) for x in mk.read_text(encoding="utf-8").splitlines() if x.strip()][:MKQA_EVAL_N]
+        replies = [generate(m, bpe, prompt_for(r["q"]), max_new=30) for r in rows]
+        manifest["mkqa_eval"] = {"n": len(rows), "score": _mkqa.eval_score(replies, rows),
+                                 "ornek": [{"soru": r["q"], "cevap": a} for r, a in list(zip(rows, replies))[:10]]}
     if cog_exam:
         from . import cogexam
         if cogexam.EXAM_PATH.exists():
@@ -502,6 +540,9 @@ def main(argv=None) -> None:
     p.add_argument("--vocab", type=int, default=8192)
     p.add_argument("--tokenizer", help="önceki eğitimin tokenizer.json'ı (devam ederken aynı tokenizer şart)")
     p.add_argument("--no-open-data", action="store_true", help="açık lisanslı diyalog verisini indirme (test/çevrimdışı)")
+    p.add_argument("--mkqa", default="auto", help="MKQA jsonl.gz yolu/URL'si (varsayılan: sabit commit adresi, "
+                                                   "sha256 doğrulamalı; --no-open-data ile kapanır)")
+    p.add_argument("--no-mkqa", action="store_true", help="MKQA bilgi sorularını ekleme")
     p.add_argument("--extra-dialogs", help="ek diyalog jsonl(.gz) yolu ya da URL'si (ör. ceviri-* Release'i); "
                                            "yalnız training_allowed=true satırlar")
     t = sub.add_parser("train")
@@ -526,7 +567,8 @@ def main(argv=None) -> None:
     a = ap.parse_args(argv)
     if a.cmd == "prepare":
         print(json.dumps(prepare(Path(a.out), a.max_chars, a.vocab, tokenizer=Path(a.tokenizer) if a.tokenizer else None,
-                                 open_data=not a.no_open_data, extra_dialogs=a.extra_dialogs), ensure_ascii=False, indent=1))
+                                 open_data=not a.no_open_data, extra_dialogs=a.extra_dialogs,
+                                 mkqa_src=None if a.no_mkqa else a.mkqa), ensure_ascii=False, indent=1))
     elif a.cmd == "train":
         train(Path(a.data), Path(a.out), a.steps, a.budget_min, a.batch, a.lr, a.dialog_frac, a.threads,
               config=SIZES[a.size], resume_from=Path(a.resume_from) if a.resume_from else None, grad_accum=a.grad_accum,
