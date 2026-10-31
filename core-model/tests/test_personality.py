@@ -289,7 +289,7 @@ def test_mix_shares_within_tolerance(mix):
     for k, v in dialogs.MIX.items():
         assert abs(sh[k] - v) < 0.02, (k, sh)
     assert abs(sum(dialogs.MIX.values()) - 1) < 1e-9
-    assert dialogs.PRINCIPLED_SHARE == pytest.approx(0.15)
+    assert dialogs.PRINCIPLED_SHARE == pytest.approx(0.22)
 
 
 def test_determinism():

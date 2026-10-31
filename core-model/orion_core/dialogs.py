@@ -494,9 +494,10 @@ def _variants(q: str, rng: random.Random) -> str:
 
 # Sohbet beyni kişilik karışımı (Tur 21, sahibinin yönü: önce KİŞİLİK). Paylar persona_dialogues'ta uygulanır;
 # gerçekleşen sayılar stats ile (mix_shares) raporlanır. Kurallar korunur ama payı azaldı (0.4 → 0.15).
-MIX = {"personality": 0.45, "memory": 0.15, "principled": 0.15, "reasoning": 0.10, "legacy": 0.15}
+# Tur 22: MKQA çıktı (kendinden emin yanlış cevap); yerine bilgi yönlendirme; ilke 0.15 → 0.22 (kişisel ton)
+MIX = {"personality": 0.40, "memory": 0.13, "principled": 0.22, "reasoning": 0.10, "route": 0.08, "legacy": 0.07}
 PRINCIPLED_SHARE = MIX["principled"]
-_MIX_PREFIX = {"personality": "kisilik:", "memory": "hafiza:", "reasoning": "akil:"}
+_MIX_PREFIX = {"personality": "kisilik:", "memory": "hafiza:", "reasoning": "akil:", "route": "bilgiyol:"}
 
 
 def mix_shares(stats: dict) -> dict:
@@ -523,7 +524,7 @@ def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[
     Eski karışım eski kurala (is_exam_question + near_cogexam) bağlı kalır.
     n: üretilecek diyalog sayısı (tam olarak n). stats verilirse kategori sayıları yazılır (eski karışım: "legacy",
     kişilik "kisilik:*", hafıza "hafiza:*", akıl "akil:*", ilke kolu kendi kategori adlarıyla)."""
-    from . import memory_notes, personality, principled, reasoning
+    from . import knowledge_route, memory_notes, personality, principled, reasoning
     from .cogexam import near_cogexam  # bilişsel sınavın (cognitive-exam.jsonl) yakın biçimleri de eğitime girmez
     rng = random.Random(seed)
     out: list[str] = []
@@ -551,6 +552,11 @@ def persona_dialogues(n: int, seed: int = 7, stats: dict | None = None) -> list[
             cat, turns = reasoning.reasoning_turns(rng)
             if _turns_ok(turns):
                 add("akil:" + cat, "\n".join(format_dialog(q, a) for q, a in turns))
+            continue
+        if branch == "route":
+            cat, turns = knowledge_route.route_turns(rng)
+            if _turns_ok(turns):
+                add("bilgiyol:" + cat, "\n".join(format_dialog(q, a) for q, a in turns))
             continue
         if branch == "memory":
             d = memory_notes.memory_dialog(rng)

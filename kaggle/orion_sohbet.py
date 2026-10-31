@@ -20,7 +20,7 @@ EXTRA_URL = "__EXTRA__"  # isteğe bağlı çeviri verisi (en son ceviri-* Relea
 # göre hesaplanır: 70000→90000 devamında etkin lr ~3e-5'ten ~1.5e-5'e iner (5e-4 tabanla ~1e-4'e SIÇRARDI).
 # Ek veri varken her 2000 adımda sınav (40 soru, açgözlü; ekran kartında tahmini <1 dk, doğrulanmadı) yapılır,
 # en iyi ağırlıklar best.pt'ye yazılır ve ayrıca chat-export-best olarak dışa aktarılır (erken durdurma).
-FT_LR, FT_DIALOG_FRAC, FT_EXAM_EVERY = "1.5e-4", "0.75", "2000"
+FT_LR, FT_DIALOG_FRAC, FT_EXAM_EVERY = "1.5e-4", "0.85", "2000"  # Tur 22: Vikipedi payı 0.25 → 0.15
 
 
 def sh(*a):

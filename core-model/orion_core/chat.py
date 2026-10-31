@@ -154,7 +154,7 @@ def encode_to(path: Path, bpe: BPE, texts) -> int:
 
 def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_000_000, texts=None,
             tokenizer: Path | None = None, open_data: bool = True, extra_dialogs: str | None = None,
-            mkqa_src: str | None = "auto") -> dict:
+            mkqa_src: str | None = None) -> dict:
     """tokenizer: önceki eğitimin tokenizer'ı (Kaggle'da kaldığı yerden devam ederken AYNI olmalı).
     extra_dialogs: ek (ör. çeviri) diyalog jsonl yolu/URL'si; bkz. extra_dialogues. Yoksa davranış değişmez.
     mkqa_src: MKQA Türkçe bilgi soruları ("auto": open_data açıksa sabit commit adresinden indirilir; yol/URL de
@@ -173,6 +173,7 @@ def prepare(out: Path, max_chars: int, vocab: int, tok_sample_chars: int = 30_00
     dialogs = persona_dialogues(60000, stats=persona_stats)
     open_texts, open_stats = open_dialogues(out / "hf-dialog") if open_data else ([], {})
     extra_texts, extra_stats = extra_dialogues(extra_dialogs, out / "extra") if extra_dialogs else ([], None)
+    # Tur 22: MKQA varsayılan KAPALI (beyin olguları ezberleyemedi, kalıpla uydurdu); yalnızca açıkça istenirse
     if mkqa_src == "auto":
         mkqa_src = _mkqa.MKQA_URL if open_data else None
     mkqa_texts, mkqa_stats = [], None
@@ -540,7 +541,7 @@ def main(argv=None) -> None:
     p.add_argument("--vocab", type=int, default=8192)
     p.add_argument("--tokenizer", help="önceki eğitimin tokenizer.json'ı (devam ederken aynı tokenizer şart)")
     p.add_argument("--no-open-data", action="store_true", help="açık lisanslı diyalog verisini indirme (test/çevrimdışı)")
-    p.add_argument("--mkqa", default="auto", help="MKQA jsonl.gz yolu/URL'si (varsayılan: sabit commit adresi, "
+    p.add_argument("--mkqa", default=None, help="MKQA jsonl.gz yolu/URL'si (varsayılan: sabit commit adresi, "
                                                    "sha256 doğrulamalı; --no-open-data ile kapanır)")
     p.add_argument("--no-mkqa", action="store_true", help="MKQA bilgi sorularını ekleme")
     p.add_argument("--extra-dialogs", help="ek diyalog jsonl(.gz) yolu ya da URL'si (ör. ceviri-* Release'i); "
